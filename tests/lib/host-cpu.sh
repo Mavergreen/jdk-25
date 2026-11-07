@@ -8,8 +8,9 @@
 #          x86_64 only where host_runs_x86_64, arm64 only on arm64 hardware.
 #          jdk_runs_natively JDK_HOME judges a whole JDK, so a symlinked bin/java or a script launcher cannot
 #          slip past: the arch its release file's OS_ARCH names (x86_64/amd64, aarch64/arm64; any other
-#          is never native), else bin/java's, read through symlinks (file -bL); true for neither, as for a
-#          test's stand-in JDK of shell scripts.
+#          is never native), and a Mach-O bin/java, read through symlinks (file -bL), must carry that arch
+#          too; with no release, bin/java's own arch; true for neither, as for a test's stand-in JDK of
+#          shell scripts.
 # spec: PORT.md ruling R18 -- x86_64 code is never translated, CI included: it runs only on x86_64
 #       hardware
 # spec: tests/host-cpu-test.sh
@@ -27,7 +28,7 @@ runs_natively() {
   case "$_hc_f" in *arm64*) [ "$(uname -s)" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] && return 0 ;; esac
   return 1
 }
-arch_runs_natively() {  # arch_runs_natively x86_64|arm64
+arch_runs_natively() {
   case "$1" in
     x86_64) host_runs_x86_64 ;;
     arm64) [ "$(uname -s)" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] ;;
@@ -37,14 +38,22 @@ arch_runs_natively() {  # arch_runs_natively x86_64|arm64
 jdk_runs_natively() {
   _hc_a="$(sed -n 's/^OS_ARCH="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$1/release" 2>/dev/null | sed -n 1p)"
   case "$_hc_a" in
-    x86_64|amd64) arch_runs_natively x86_64; return ;;
-    aarch64|arm64) arch_runs_natively arm64; return ;;
+    x86_64|amd64) _hc_a=x86_64 ;;
+    aarch64|arm64) _hc_a=arm64 ;;
     '') ;;
     *) return 1 ;;
   esac
   _hc_f="$(file -bL "$1/bin/java" 2>/dev/null)" || _hc_f=""
-  case "$_hc_f" in Mach-O*) ;; *) return 0 ;; esac
-  case "$_hc_f" in *x86_64*) arch_runs_natively x86_64 && return 0 ;; esac
-  case "$_hc_f" in *arm64*) arch_runs_natively arm64 && return 0 ;; esac
-  return 1
+  case "$_hc_f" in
+    Mach-O*)
+      if [ -n "$_hc_a" ]; then
+        case "$_hc_f" in *"$_hc_a"*) arch_runs_natively "$_hc_a"; return ;; *) return 1 ;; esac
+      fi
+      case "$_hc_f" in *x86_64*) arch_runs_natively x86_64 && return 0 ;; esac
+      case "$_hc_f" in *arm64*) arch_runs_natively arm64 && return 0 ;; esac
+      return 1 ;;
+    *)
+      [ -z "$_hc_a" ] || { arch_runs_natively "$_hc_a"; return; }
+      return 0 ;;
+  esac
 }

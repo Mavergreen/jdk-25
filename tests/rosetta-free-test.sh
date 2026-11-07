@@ -58,8 +58,15 @@ for f in $(git ls-files -- '*.sh'); do
   esac
 done
 
-if command -v python3 > /dev/null 2>&1 && python3 -c 'import yaml' > /dev/null 2>&1; then
-  python3 -I - "$tools" $(git ls-files -- '.github/workflows/*.yml') <<'PY' || fail=1
+# platform: shipyard's install action puts PyYAML in the user site (pip --user), which -I hides (it
+#           implies -s); -E keeps it while ignoring PYTHON* variables, and -P (3.11+) keeps the current
+#           directory off sys.path. The probe and the run take the same flags, so they cannot disagree.
+pyflags=-E
+if command -v python3 > /dev/null 2>&1 && python3 -E -P -c '' > /dev/null 2>&1; then pyflags="-E -P"; fi
+# shellcheck disable=SC2086  # pyflags is one or two fixed flags
+if command -v python3 > /dev/null 2>&1 && python3 $pyflags -c 'import yaml' > /dev/null 2>&1; then
+  # shellcheck disable=SC2086
+  python3 $pyflags - "$tools" $(git ls-files -- '.github/workflows/*.yml') <<'PY' || fail=1
 import re, sys, yaml
 tools, files = sys.argv[1], sys.argv[2:]
 pat = re.compile(r"/bin/(%s)\b|test-natives/|(^|[;&|(]|\$\()\s*(/usr/bin/)?arch\s+(-arch\s+)?-?x86_64" % tools)

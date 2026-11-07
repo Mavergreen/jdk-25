@@ -68,7 +68,9 @@ jnat() { ( PATH="$t/bin:$PATH"; . "$here/lib/host-cpu.sh"; jdk_runs_natively "$1
 for c in "Darwin arm64 1 0:link-x86_64:-:no" "Darwin arm64 1 0:script:x86_64:no" "Darwin arm64 1 0:script:amd64:no" \
          "Darwin arm64 1 0:arm64:x86_64:no" "Darwin arm64 1 0:link-arm64:-:yes" "Darwin arm64 1 0:script:aarch64:yes" \
          "Darwin arm64 1 0:script:-:yes" "Darwin x86_64 1 1:script:x86_64:no" "Darwin x86_64 - -:link-x86_64:x86_64:yes" \
-         "Darwin x86_64 - -:script:aarch64:no" "Darwin arm64 1 0:x86_64:-:no" "Darwin arm64 1 0:script:sparcv9:no"; do
+         "Darwin x86_64 - -:script:aarch64:no" "Darwin arm64 1 0:x86_64:-:no" "Darwin arm64 1 0:script:sparcv9:no" \
+         "Darwin arm64 1 0:x86_64:aarch64:no" "Darwin arm64 1 0:link-x86_64:arm64:no" "Darwin arm64 1 0:link-arm64:aarch64:yes" \
+         "Darwin x86_64 - -:arm64:x86_64:no" "Darwin x86_64 - -:x86_64:amd64:yes"; do
   h="${c%%:*}"; rest="${c#*:}"; j="${rest%%:*}"; rest="${rest#*:}"; a="${rest%%:*}"; want="${rest#*:}"
   # shellcheck disable=SC2086
   host $h
