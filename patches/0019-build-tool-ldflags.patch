@@ -1,0 +1,28 @@
+What: when MAVERGREEN_BUILD_TOOL_LDFLAGS is set, every native build tool (SetupNativeCompilation
+  with TARGET_TYPE := BUILD) adds it to its link. Unset, nothing changes.
+Why on 10.9: a native build is not cross-compiling, so configure builds its build tools with the
+  target's compiler (BUILD_CXX and BUILD_LDCXX are CXX and LDCXX) but gives them none of
+  --with-extra-ldflags, and hotspot's adlc also takes no default LDFLAGS. adlc compiles against
+  clang22's libc++ headers, so it must link clang22's libc++ and Recaulk as every C++ binary of the
+  image does (rulings R17, R21); without them it links the 10.9 SDK's libc++, which lacks
+  std::__1::__hash_memory. build/build-jdk.sh sets it on Mac OS X 10.9 only (ruling R56); the
+  cross build's build tools are arm64 host tools and stay as they are.
+Provenance: ours.
+Exit: upstream gives a native build's build tools their own extra LDFLAGS (configure has no
+  OPENJDK_BUILD_EXTRA_LDFLAGS today); then set that instead and delete this patch.
+
+--- a/make/common/NativeCompilation.gmk
++++ b/make/common/NativeCompilation.gmk
+@@ -309,6 +309,12 @@
+       $$(call SetIfEmpty, $1_LD, $$(BUILD_LDCXX))
+     else
+       $$(call SetIfEmpty, $1_LD, $$(BUILD_LD))
++    endif
++    # Mavergreen: when MAVERGREEN_BUILD_TOOL_LDFLAGS is set, every build tool's
++    # link takes it too: a native build (not cross-compiling) links its build
++    # tools with the target's compiler but none of --with-extra-ldflags.
++    ifneq ($(MAVERGREEN_BUILD_TOOL_LDFLAGS), )
++      $1_EXTRA_LDFLAGS += $(MAVERGREEN_BUILD_TOOL_LDFLAGS)
+     endif
+   else
+     $$(call SetIfEmpty, $1_CC, $$(CC))

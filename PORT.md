@@ -31,6 +31,7 @@ what, why on 10.9, provenance and exit.
 | `patches/0016-appkit-system-colors.patch` | system colors without 10.14 selectors (was `patches-gui/0004`) | never |
 | `patches/0017-nio-kqueue-selector-ignores-urgent-only-reads.patch` | the kqueue `Selector` ignores a read event that reports only urgent data while `SO_OOBINLINE` is off: it discards the byte and makes the socket's read filter `EV_CLEAR` until real data or EOF, so `select` neither selects the key, nor returns early, nor spins inside (ruling R26) | none while 10.9 is supported |
 | `patches/0018-nio-normalize-paths-before-apfs.patch` | `jdk.nio.path.useNormalizationFormD` defaults to true before macOS 10.13 (HFS+ only); an explicit `-D` still decides (ruling R27) | none while 10.9 is supported |
+| `patches/0019-build-tool-ldflags.patch` | native build tools (`TARGET_TYPE := BUILD`) add `MAVERGREEN_BUILD_TOOL_LDFLAGS` to their links when it is set, which `build/build-jdk.sh` does on 10.9 only (ruling R56) | upstream gives a native build's build tools their own extra LDFLAGS |
 
 Parked for release 2, not applied (`patches-gui/`, same headers): `0002-appkit-nsstring-substring`,
 `0003-appkit-window-tabbing-fullsize`, `0005-appkit-tray-icon-nsbutton`, `0006-a11y-legacy-superclass`,
@@ -282,3 +283,16 @@ that every cited one is defined here). Each says what was decided, why, and what
   `--disable-cds-archive`: the image ships no default CDS archive and the postinstall writes it (R28),
   and a cross build cannot make one while a native one would. Cost: the native build's man pages go
   unchecked, and a class differing only inside `lib/modules` is caught through its jmod, not there.
+- **R56** R21's link route reaches the native build's build tools too. A native 10.9 build is not
+  cross-compiling, so configure builds hotspot's adlc with the target's clang22 and its libc++
+  headers (`BUILD_CXX` is `CXX`) but links it with none of `--with-extra-ldflags`, and adlc takes no
+  default LDFLAGS either; it then linked the 10.9 SDK's libc++ (`std::__1::__hash_memory` undefined).
+  `build/toolchain.sh`'s `jdk_link_flags` is the one route (Recaulk, clang22's `libc++.a` hidden,
+  `libc++abi`, `-dead_strip_dylibs`), given to the image's links by `--with-extra-ldflags` and, on
+  10.9 only, to every build tool's link by `patches/0019`'s `MAVERGREEN_BUILD_TOOL_LDFLAGS`. Not a
+  make command-line `BUILD_LDCXX`: on the build host it did not reach adlc's link, under
+  `/usr/bin/make` (GNU Make 3.81, 10.9's) or pkgsrc's make, while an environment variable reaches
+  every sub-make. Not a flag on `CXX`: the image's C++ links already take the route, and taking
+  it twice changes their bytes. The cross build leaves the variable unset, so its build tools, arm64
+  host tools built with `/usr/bin/clang++`, are unchanged. Cost: one more patch, to OpenJDK's
+  `make/common/NativeCompilation.gmk`.

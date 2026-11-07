@@ -15,6 +15,10 @@
 #          jdk25-<HOME/release's JAVA_RUNTIME_VERSION>, elsewhere components/bootjdk/version's TAG.
 #          jdk_cxx_native_flags prints what CXX adds on Mac OS X 10.9 only, "-include sys/_types.h", and
 #          nothing elsewhere, so the cross build's CXX is unchanged.
+#          jdk_link_flags prints, after jdk_toolchain, the link route every link of the image takes:
+#          Recaulk, clang22's libc++.a hidden, libc++abi (ruling R21), and what Recaulk needs.
+#          jdk_build_tool_ldflags prints, on Mac OS X 10.9 only, jdk_link_flags, which build/build-jdk.sh
+#          gives the native build tools' links through patches/0019 (ruling R56); elsewhere nothing.
 #          jdk_target_args prints configure's --openjdk-target for the cross build, and nothing on Mac
 #          OS X 10.9, which builds natively: there build, host and target are all x86_64 Darwin.
 #          jdk_compat_guard MACHO... runs shipyard's compat guard on a JDK image's Mach-O, with the
@@ -152,6 +156,24 @@ jdk_cxx_native_flags() {
   #       <sys/_types/_mbstate_t.h>, which in the 10.9 SDK uses __darwin_mbstate_t without including
   #       <sys/_types.h>, so <iostream> does not compile; on 10.9 hotspot's adlc includes it
   if jdk_host_is_109; then echo "-include sys/_types.h"; fi
+}
+
+jdk_link_flags() {
+  [ -n "${RECAULK_LIB:-}" ] && [ -n "${CLANG22:-}" ] || { echo "jdk_link_flags: run jdk_toolchain first" >&2; return 1; }
+  # platform: every C++ binary compiles against clang22's libc++ headers, so every link takes clang22's
+  #           own libc++.a, hidden, and the system libc++abi, as clang22's portable-ld does (ruling R21);
+  #           the 10.9 SDK's libc++ lacks instantiations those headers expect, and clang22's libc++.a
+  #           takes aligned_alloc and __cxa_uncaught_exceptions from Recaulk. -nostdlib++ keeps clang++
+  #           from adding -lc++ as well. The flags reach C-only links too (libzip, libnet), and
+  #           -dead_strip_dylibs drops the load command of any dylib a binary takes no symbol from.
+  printf '%s\n' "$RECAULK_LIB -nostdlib++ -Wl,-load_hidden,$CLANG22/lib/libc++.a -lc++abi -Wl,-dead_strip_dylibs -Wl,-U,__availability_version_check -lobjc -framework CoreFoundation -framework Security -framework CoreServices"
+}
+
+jdk_build_tool_ldflags() {
+  jdk_host_is_109 || return 0
+  # spec: PORT.md ruling R56 -- a native build links its C++ build tools (hotspot's adlc) with CXX but
+  #       none of --with-extra-ldflags; patches/0019 adds MAVERGREEN_BUILD_TOOL_LDFLAGS to their links
+  jdk_link_flags
 }
 
 jdk_target_args() {

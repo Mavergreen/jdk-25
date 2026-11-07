@@ -12,6 +12,11 @@
 #   <iostream> compiles with clang22 against the 10.9 SDK with jdk_toolchain's CXX and those flags (on 10.9,
 #   CXX alone). Off 10.9, the same compile without them must still fail: when it passes, clang22's libc++
 #   is fixed and INGREDIENTS.md's native-cxx-include deviation goes.
+#   jdk_build_tool_ldflags, after jdk_toolchain, is jdk_link_flags on 10.9 (PORT.md ruling R56) and nothing
+#   elsewhere. CXX with those flags, as patches/0019 links a native build tool, links an x86_64
+#   std::hash<std::string> and std::unordered_map user against the 10.9 SDK (never run): clean by the
+#   compat guard, no libc++.1.dylib load command. CXX alone, which is what adlc linked with, must fail on
+#   std::__1::__hash_memory.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -82,5 +87,27 @@ else
   if $cxx -std=c++14 -c -o "$t/io.o" "$t/io.cc" > /dev/null 2>&1; then
     fail "clang22's libc++ now compiles <iostream> against the 10.9 SDK without $got: delete INGREDIENTS.md's native-cxx-include deviation and jdk_cxx_native_flags"
   fi
+fi
+printf '#include <functional>\n#include <string>\n#include <unordered_map>\nint main(int c, char **v) { std::unordered_map<std::string, int> m; m[v[0]] = c; return (int)(std::hash<std::string>()(v[0]) + m.size()); }\n' > "$t/hash.cc"
+lk="$(/bin/sh -c '. "$MAVERICKS_ROOT/build/toolchain.sh"; jdk_toolchain > /dev/null 2>&1 || exit 9; jdk_link_flags')" \
+  || fail "jdk_link_flags failed"
+got="$(/bin/sh -c '. "$MAVERICKS_ROOT/build/toolchain.sh"; jdk_toolchain > /dev/null 2>&1 || exit 9
+  PATH="$1:$PATH"; jdk_build_tool_ldflags' x "$t/bin")" || fail "jdk_build_tool_ldflags failed under the 10.9 uname"
+[ "$got" = "$lk" ] || fail "jdk_build_tool_ldflags under the 10.9 uname printed '$got', not jdk_link_flags"
+if ! onhost 'jdk_host_is_109'; then
+  got="$(onhost 'jdk_build_tool_ldflags')" || fail "jdk_build_tool_ldflags failed"
+  [ -z "$got" ] || fail "jdk_build_tool_ldflags off 10.9 printed '$got': the cross build's build tools must not change"
+fi
+# shellcheck disable=SC2086  # CXX and the link flags are command lines
+$cxx $lk -std=c++14 -o "$t/hash" "$t/hash.cc" > "$t/o" 2>&1 \
+  || fail "CXX with jdk_build_tool_ldflags cannot link a std::hash<std::string> user: $(head -5 "$t/o")"
+/bin/sh -c '. "$MAVERICKS_ROOT/build/toolchain.sh"; jdk_compat_guard "$1"' x "$t/hash" > "$t/o" 2>&1 || fail "the build-tool link fails the compat guard: $(cat "$t/o")"
+if otool -L "$t/hash" | grep -q '/libc++\.1\.dylib '; then fail "the build-tool link loads libc++.1.dylib, not clang22's libc++ (ruling R21)"; fi
+if ! onhost 'jdk_host_is_109'; then
+  # shellcheck disable=SC2086  # CXX is a command line
+  if $cxx -include sys/_types.h -std=c++14 -o "$t/hash2" "$t/hash.cc" > "$t/o" 2>&1; then
+    fail "CXX alone now links a std::hash<std::string> user against the 10.9 SDK: PORT.md ruling R56 and patches/0019 may no longer be needed"
+  fi
+  grep -q '__hash_memory' "$t/o" || fail "CXX alone failed to link for another reason than __hash_memory: $(head -5 "$t/o")"
 fi
 echo "PASS: native-host"

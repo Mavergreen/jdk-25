@@ -47,14 +47,13 @@ sh "$SHIPYARD_SCRIPTS/apply_patches.sh" "$src" "$MAVERICKS_ROOT/patches"
 #           Recaulk's headers back-fill the 10.9 SDK and redeclare what the 11.3 SDK already has
 #           (pthread/qos.h's qos_class_t).
 rflags="-isystem$RECAULK_INCLUDE"
-# platform: every C++ binary (libjvm, libjsound, libfontmanager, jpackageapplauncher) compiles against
-#           clang22's libc++ headers, so every link takes clang22's own libc++.a, hidden, and the system
-#           libc++abi, as clang22's portable-ld does (ruling R21); the 10.9 SDK's libc++ lacks instantiations
-#           those headers expect. -nostdlib++ keeps clang++ from adding -lc++ as well.
-cxxlib="-nostdlib++ -Wl,-load_hidden,$CLANG22/lib/libc++.a -lc++abi"
-# platform: those flags reach every link, C-only dylibs (libzip, libnet) too; -dead_strip_dylibs drops
-#           the load command of any dylib a binary takes no symbol from, so only C++ binaries load libc++abi.
-lflags="$RECAULK_LIB $cxxlib -Wl,-dead_strip_dylibs -Wl,-U,__availability_version_check -lobjc -framework CoreFoundation -framework Security -framework CoreServices"
+# spec: PORT.md ruling R21 -- jdk_link_flags: Recaulk, clang22's libc++.a hidden and libc++abi, on every link
+lflags="$(jdk_link_flags)" || die "jdk_link_flags failed"
+# spec: PORT.md ruling R56 -- on Mac OS X 10.9 the build tools link through that route too, by
+#       patches/0019's MAVERGREEN_BUILD_TOOL_LDFLAGS; the cross build leaves it unset
+btflags="$(jdk_build_tool_ldflags)" || die "jdk_build_tool_ldflags failed"
+if [ -n "$btflags" ]; then MAVERGREEN_BUILD_TOOL_LDFLAGS="$btflags"; export MAVERGREEN_BUILD_TOOL_LDFLAGS
+else unset MAVERGREEN_BUILD_TOOL_LDFLAGS; fi
 vflags="-mmacosx-version-min=10.9"
 repo_url=https://github.com/Mavergreen/jdk-25
 
