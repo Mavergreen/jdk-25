@@ -74,7 +74,7 @@ It exits 0 when all of these hold:
 - each of those files and entries has the same bytes, apart from the exceptions below.
 
 An archive's own bytes aren't compared, only its entries, because configure stamps the entries with
-its own time.
+its own time. That holds for an archive inside a jmod too (`jdk.compiler`'s `lib/ct.sym`).
 
 Some differences are expected and don't fail the run:
 
@@ -83,6 +83,8 @@ Some differences are expected and don't fail the run:
   These are excused only when a Mach-O differs, and reported as `excused (records Mach-O hashes)`.
 - **Differences by design (R55):** `host`, `bootjdk`, and the man pages of a `pandoc=none` build. Each
   is reported as `excused`.
+- **What the boot JDK writes (R55):** a jar manifest's `Created-By` line, when `bootjdk` differs,
+  reported as `excused (bootjdk's jar wrote it)`. The rest of the manifest is compared.
 
 Any other byte difference is reported as `differs (not Mach-O)` and fails the run. Each failure is a
 finding to fix before the native build is trusted.

@@ -281,8 +281,13 @@ that every cited one is defined here). Each says what was decided, why, and what
   the cross build with that Temurin); and, when one side records `pandoc=none`, the man pages it could
   not make (R19), in the image's `man/` and each jmod's `man/`. Both builds configure with
   `--disable-cds-archive`: the image ships no default CDS archive and the postinstall writes it (R28),
-  and a cross build cannot make one while a native one would. Cost: the native build's man pages go
-  unchecked, and a class differing only inside `lib/modules` is caught through its jmod, not there.
+  and a cross build cannot make one while a native one would. An archive inside a jmod
+  (`jdk.compiler`'s `lib/ct.sym`) is compared by its entries too. A jar manifest's `Created-By` line
+  is compared apart from the rest of the manifest and excused only when `bootjdk` differs: the jar
+  tool writes it from the JDK that runs it, the boot JDK (`25.0.5 (Eclipse Adoptium)` against
+  `25.0.5.0.3 (Mavergreen)`). Cost: the native build's man pages go unchecked, a class differing only
+  inside `lib/modules` is caught through its jmod, not there, and the manifests do not show which
+  JDK built the image.
 - **R56** R21's link route reaches the native build's build tools too. A native 10.9 build is not
   cross-compiling, so configure builds hotspot's adlc with the target's clang22 and its libc++
   headers (`BUILD_CXX` is `CXX`) but links it with none of `--with-extra-ldflags`, and adlc takes no

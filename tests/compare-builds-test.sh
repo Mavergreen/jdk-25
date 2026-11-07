@@ -2,15 +2,18 @@
 # platform: macOS-only -- compiles its fixtures' Mach-O with build/toolchain.sh's clang22, and the compat guard reads them
 # usage: sh tests/compare-builds-test.sh
 #   build/compare-builds.sh CROSS_IMAGE NATIVE_IMAGE against fixture images, each a JDK home (bin, conf,
-#   man, release, lib with a dylib, lib/modules and a jar, and one jmod holding module-info.class, a class,
-#   a man page and a dylib) with its build-info.txt beside it, as build/build-jdk.sh and CI's image
-#   artifact leave them. Every fixture's jar and jmod is zipped with its own entry times. Against the cross
-#   fixture:
+#   man, release, lib with a dylib, lib/modules and a jar with a manifest, and one jmod holding
+#   module-info.class, a class, a man page, a dylib and lib/ct.sym, a zip) with its build-info.txt beside
+#   it, as build/build-jdk.sh and CI's image artifact leave them. Every fixture's jar, jmod and ct.sym is
+#   zipped with its own entry times. Against the cross fixture:
 #     a native image that agrees, its dylibs' bytes differing and so lib/modules and the ModuleHashes in
-#       module-info.class, its host and boot JDK differing, and with pandoc=none and no man pages (PORT.md
-#       ruling R55): exit 0, naming each differing Mach-O and what was excused;
+#       module-info.class, its host and boot JDK differing and so its jar manifest's Created-By, and with
+#       pandoc=none and no man pages (PORT.md ruling R55): exit 0, naming each differing Mach-O and what
+#       was excused;
 #     one whose conf/net.properties differs, one whose jmod's or jar's class differs, one whose lib/modules differs
-#       while no Mach-O does, one whose module-info.class differs without ModuleHashes: exit 1, naming it;
+#       while no Mach-O does, one whose module-info.class differs without ModuleHashes, one whose ct.sym
+#       holds a different entry, one whose manifest's Created-By differs with the same boot JDK, one whose
+#       manifest differs elsewhere than Created-By: exit 1, naming it;
 #     one missing a file, one whose jmod is missing an entry: exit 1, naming it;
 #     one with a different recaulk=: exit 1, naming the key and both values;
 #     one whose dylib imports _clock_gettime: exit 1, naming the compat guard;
@@ -51,10 +54,16 @@ image() {
   printf 'JAVA_VERSION="25.0.5.0.3"\n' > "$i/release"
   printf 'networkaddress.cache.ttl=30\n' > "$i/conf/net.properties"
   printf '.TH JAVA 1\n' > "$i/man/man1/java.1"
-  rm -rf "$t/jm"; mkdir -p "$t/jm/jdk/internal/jrtfs"
+  rm -rf "$t/jm"; mkdir -p "$t/jm/jdk/internal/jrtfs" "$t/jm/META-INF"
   printf 'CAFEBABE jrtfs\n' > "$t/jm/jdk/internal/jrtfs/JrtFileSystem.class"
+  printf 'Manifest-Version: 1.0\r\nCreated-By: %s\r\n%s\r\n' "${3:-25.0.5 (Eclipse Adoptium)}" "${5:-}" \
+    > "$t/jm/META-INF/MANIFEST.MF"
   zipped "$t/jm"; cp "$t/z.zip" "$i/lib/jrt-fs.jar"
+  rm -rf "$t/ct"; mkdir -p "$t/ct/9/java.base/java/lang"
+  printf 'sig %s\n' "${4:-Object}" > "$t/ct/9/java.base/java/lang/Object.sig"
+  zipped "$t/ct"
   rm -rf "$t/jm"; mkdir -p "$t/jm/classes" "$t/jm/lib" "$t/jm/man/man1"
+  cp "$t/z.zip" "$t/jm/lib/ct.sym"
   printf 'CAFEBABE ModuleHashes %s\n' "$2" > "$t/jm/classes/module-info.class"
   printf 'CAFEBABE Object\n' > "$t/jm/classes/Object.class"
   printf '.TH JAVA 1\n' > "$t/jm/man/man1/java.1"
@@ -77,7 +86,8 @@ has() { grep -q "$1" "$t/out" || fail "$2: the output does not say '$1': $(cat "
 
 c="$t/cross"; image "$c" 1; info "$c"
 
-n="$t/agree"; image "$n" 2; info "$n" host=x86_64-macos10.9.5 bootjdk=jdk25-25.0.5.0.3+3-mavericks.1 pandoc=none
+n="$t/agree"; image "$n" 2 '25.0.5.0.3 (Mavergreen)'
+info "$n" host=x86_64-macos10.9.5 bootjdk=jdk25-25.0.5.0.3+3-mavericks.1 pandoc=none
 rm -rf "$n/image/man"; nojmodman "$n"
 run "$c/image" "$n/image"
 [ "$rc" = 0 ] || fail "an agreeing native image: exit $rc, not 0: $(cat "$t/out")"
@@ -88,7 +98,9 @@ has 'excused: bootjdk' "an agreeing native image"
 has 'excused (pandoc=none): man/man1/java.1' "an agreeing native image"
 has 'excused (records Mach-O hashes): lib/modules' "an agreeing native image"
 has 'excused (records Mach-O hashes): jmods/java.base.jmod!classes/module-info.class' "an agreeing native image"
-if grep -q 'jrt-fs' "$t/out"; then fail "a jar whose entries agree was reported: $(cat "$t/out")"; fi
+has "excused (bootjdk's jar wrote it): lib/jrt-fs.jar!META-INF/MANIFEST.MF:Created-By" "an agreeing native image"
+if grep -q 'jrt-fs.jar!jdk\|MANIFEST.MF$' "$t/out"; then fail "a jar whose entries agree was reported: $(cat "$t/out")"; fi
+if grep -q 'ct.sym' "$t/out"; then fail "a ct.sym whose entries agree was reported: $(cat "$t/out")"; fi
 
 n="$t/same"; image "$n" 1; info "$n"
 run "$c/image" "$n/image"
@@ -110,6 +122,22 @@ printf 'CAFEBABE jrtfs2\n' > "$t/jm/jdk/internal/jrtfs/JrtFileSystem.class"; zip
 run "$c/image" "$n/image"
 [ "$rc" = 1 ] || fail "a native jar whose class differs: exit $rc, not 1: $(cat "$t/out")"
 has 'differs (not Mach-O): lib/jrt-fs.jar!jdk/internal/jrtfs/JrtFileSystem.class' "a native jar whose class differs"
+
+n="$t/ctsym"; image "$n" 1 '' Object2; info "$n"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native jmod whose ct.sym holds a different entry: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): jmods/java.base.jmod!lib/ct.sym!9/java.base/java/lang/Object.sig' "a native ct.sym entry that differs"
+
+n="$t/createdby"; image "$n" 1 '25.0.5.0.3 (Mavergreen)'; info "$n"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native manifest whose Created-By differs, the boot JDK the same: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): lib/jrt-fs.jar!META-INF/MANIFEST.MF:Created-By' "a native Created-By that differs, the boot JDK the same"
+
+n="$t/manifest"; image "$n" 1 '25.0.5.0.3 (Mavergreen)' '' 'Main-Class: Other'; info "$n" bootjdk=jdk25-25.0.5.0.3+3-mavericks.1
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native manifest that differs elsewhere than Created-By: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): lib/jrt-fs.jar!META-INF/MANIFEST.MF$' "a native manifest that differs elsewhere than Created-By"
+has "excused (bootjdk's jar wrote it): lib/jrt-fs.jar!META-INF/MANIFEST.MF:Created-By" "a native manifest that differs elsewhere than Created-By"
 
 n="$t/modules"; image "$n" 1; info "$n"; printf 'another jimage\n' > "$n/image/lib/modules"
 run "$c/image" "$n/image"

@@ -12,10 +12,13 @@
 #            hashes when a Mach-O differs (R55: lib/modules, and a jmod's module-info.class holding
 #            ModuleHashes).
 #          An archive is compared by its entries, never its own bytes: its entries carry configure's
-#          time. A jmod's entries are unpacked (its Mach-O are guarded); a jar's or zip's are compared
-#          by length and CRC-32. A difference is reported as "Mach-O differs: PATH", "excused (records Mach-O hashes):
-#          PATH" or "differs (not Mach-O): PATH", an archive entry as ARCHIVE!ENTRY. A key only one
-#          build-info.txt has is reported, not compared.
+#          time. A jmod's entries are unpacked (its Mach-O are guarded); a jar's or zip's, in the image
+#          or in a jmod (lib/ct.sym), are compared by length and CRC-32. A jar manifest's Created-By
+#          line names the JDK whose jar tool wrote it, so it is compared apart from the rest of the
+#          manifest, as ARCHIVE!META-INF/MANIFEST.MF:Created-By, and excused when bootjdk differs (R55).
+#          A difference is reported as "Mach-O differs: PATH", "excused (records Mach-O hashes): PATH",
+#          "excused (bootjdk's jar wrote it): PATH" or "differs (not Mach-O): PATH", an archive entry as
+#          ARCHIVE!ENTRY. A key only one build-info.txt has is reported, not compared.
 #          Exits 1 on a difference, 2 on a usage error or a missing image or build-info.txt.
 # spec: PORT.md ruling R55
 set -eu
@@ -34,6 +37,24 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/compare-builds.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 bad=0
 
+zipsums() {
+  # platform: a jar or zip is compared by unzip -v's listing (each entry's length and CRC-32), not
+  #           unpacked: lib/security/public_suffix_list.dat's 1452 entries have IDN names, and
+  #           unpacked onto APFS only 1295 remain, unzip exiting 50
+  _rc=0; unzip -v "$1" > "$T/$_n.v" 2>/dev/null || _rc=$?
+  [ "$_rc" -le 1 ] || { echo "compare-builds: unzip -v exited $_rc on $1" >&2; exit 2; }
+  awk -v z="$2" 'NF >= 8 && length($7) == 8 && $7 ~ /^[0-9a-f]+$/ && $1 ~ /^[0-9]+$/ {
+      e = $0; for (k = 1; k <= 7; k++) sub(/^ *[^ ]+/, "", e); sub(/^ +/, "", e)
+      if (e !~ /\/$/ && e != "META-INF/MANIFEST.MF") print "crc:" $7 ":" $1 "  " z "!" e }' "$T/$_n.v" >> "$T/$_n.sums"
+  grep -q ' META-INF/MANIFEST\.MF$' "$T/$_n.v" || return 0
+  # spec: PORT.md ruling R55 -- the jar tool writes "Created-By: <its JDK's version> (<its vendor>)"
+  unzip -p "$1" META-INF/MANIFEST.MF | tr -d '\r' > "$T/$_n.mf"
+  awk '/^Created-By: / { c = 1; next } c && /^ / { next } { c = 0; print }' "$T/$_n.mf" | shasum -a 256 \
+    | sed "s|  -\$|  $2!META-INF/MANIFEST.MF|; s|^|mf:|" >> "$T/$_n.sums"
+  awk '/^Created-By: / { c = 1; print; next } c && /^ / { print; next } { c = 0 }' "$T/$_n.mf" | shasum -a 256 \
+    | sed "s|  -\$|  $2!META-INF/MANIFEST.MF:Created-By|; s|^|cb:|" >> "$T/$_n.sums"
+}
+
 side() {
   _n=$1; _i="$(cd "$2" && pwd)"
   grep '=' "$(dirname "$_i")/build-info.txt" | sort > "$T/$_n.info"
@@ -45,30 +66,28 @@ side() {
   sed -n 's|^\(.*\): *Mach-O.*|\1|p' "$T/$_n.types" > "$T/$_n.macho"
   sed "s|^|$_i/|" "$T/$_n.macho" > "$T/$_n.guard"
   (cd "$_i" && find . -type f -exec shasum -a 256 {} +) | sed 's|  \./|  |' \
-    | awk 'NR == FNR { z[$0] = 1; next } { p = $0; sub(/^[^ ]*  /, "", p); if (p in z) print "archive  " p; else print }' \
-      "$T/$_n.zips" - > "$T/$_n.sums"
+    | awk -v zf="$T/$_n.zips" 'BEGIN { while ((getline l < zf) > 0) z[l] = 1 }
+        { p = $0; sub(/^[^ ]*  /, "", p); if (p in z) print "archive  " p; else print }' > "$T/$_n.sums"
   (cd "$_i" && find . -type l | while IFS= read -r _l; do printf 'link:%s  %s\n' "$(readlink "$_l")" "${_l#./}"; done) >> "$T/$_n.sums"
   while IFS= read -r _z; do
     case "$_z" in
       *.jmod) ;;
-      *)
-        # platform: a jar or zip is compared by unzip -v's listing (each entry's length and CRC-32), not
-        #           unpacked: lib/security/public_suffix_list.dat's 1452 entries have IDN names, and
-        #           unpacked onto APFS only 1295 remain, unzip exiting 50
-        _rc=0; unzip -v "$_i/$_z" > "$T/$_n.v" 2>/dev/null || _rc=$?
-        [ "$_rc" -le 1 ] || { echo "compare-builds: unzip -v exited $_rc on $_i/$_z" >&2; exit 2; }
-        awk -v z="$_z" 'NF >= 8 && length($7) == 8 && $7 ~ /^[0-9a-f]+$/ && $1 ~ /^[0-9]+$/ {
-            e = $0; for (k = 1; k <= 7; k++) sub(/^ *[^ ]+/, "", e); sub(/^ +/, "", e)
-            if (e !~ /\/$/) print "crc:" $7 ":" $1 "  " z "!" e }' "$T/$_n.v" >> "$T/$_n.sums"
-        continue ;;
+      *) zipsums "$_i/$_z" "$_z"; continue ;;
     esac
     _d="$T/$_n.x/$_z"; mkdir -p "$_d"
     # platform: a jmod is a zip behind a 4-byte header, which unzip reads past, exiting 1 for that
     #           header's warning, 2 and up on a real failure.
     _rc=0; unzip -qo "$_i/$_z" -d "$_d" > /dev/null 2>&1 || _rc=$?
     [ "$_rc" -le 1 ] || { echo "compare-builds: unzip exited $_rc on $_i/$_z" >&2; exit 2; }
-    (cd "$_d" && find . -type f -exec shasum -a 256 {} +) | sed "s|  \./|  $_z!|" >> "$T/$_n.sums"
-    (cd "$_d" && find . -type f -exec file {} +) | sed -n 's|^\./\(.*\): *Mach-O.*|\1|p' > "$T/$_n.zm"
+    (cd "$_d" && find . -type f -exec file {} +) | sed 's|^\./||' > "$T/$_n.zt"
+    # spec: PORT.md ruling R55 -- an archive in a jmod (jdk.compiler's lib/ct.sym) is compared by its entries
+    grep -E ': +(Zip archive|Java archive)' "$T/$_n.zt" | sed 's|: .*||' > "$T/$_n.zz"
+    (cd "$_d" && find . -type f -exec shasum -a 256 {} +) | sed 's|  \./|  |' \
+      | awk -v zf="$T/$_n.zz" 'BEGIN { while ((getline l < zf) > 0) z[l] = 1 }
+          { p = $0; sub(/^[^ ]*  /, "", p); if (p in z) print "archive  " p; else print }' \
+      | sed "s|  |  $_z!|" >> "$T/$_n.sums"
+    while IFS= read -r _e; do zipsums "$_d/$_e" "$_z!$_e"; done < "$T/$_n.zz"
+    sed -n 's|^\(.*\): *Mach-O.*|\1|p' "$T/$_n.zt" > "$T/$_n.zm"
     sed "s|^|$_z!|" "$T/$_n.zm" >> "$T/$_n.macho"
     sed "s|^|$_d/|" "$T/$_n.zm" >> "$T/$_n.guard"
   done < "$T/$_n.zips"
@@ -87,13 +106,14 @@ side native "$2"
 val() { sed -n "s/^$2=//p" "$T/$1.info"; }
 cut -d= -f1 "$T/cross.info" | sort -u > "$T/cross.keys"
 cut -d= -f1 "$T/native.info" | sort -u > "$T/native.keys"
-nopandoc=no
+nopandoc=no; otherboot=no
 for k in $(comm -12 "$T/cross.keys" "$T/native.keys"); do
   c="$(val cross "$k")"; n="$(val native "$k")"
   [ "$c" = "$n" ] && continue
   case "$k" in
     # spec: PORT.md ruling R55 -- where each was built, and with which boot JDK, differ by design
-    host|bootjdk) say "excused: $k: $c (cross) vs $n (native)" ;;
+    host) say "excused: $k: $c (cross) vs $n (native)" ;;
+    bootjdk) otherboot=yes; say "excused: $k: $c (cross) vs $n (native)" ;;
     # spec: PORT.md ruling R19 -- no pinned pandoc runs on Mac OS X 10.9, so that build has no man pages
     pandoc)
       if [ "$c" = none ] || [ "$n" = none ]; then nopandoc=yes; say "excused: pandoc: $c (cross) vs $n (native)"
@@ -141,8 +161,12 @@ hashes() {
     *) return 1 ;;
   esac
 }
+# spec: PORT.md ruling R55 -- a jar manifest's Created-By names the boot JDK when that JDK's jar wrote it
+createdby() { [ "$otherboot" = yes ] && case "$1" in *!META-INF/MANIFEST.MF:Created-By) true ;; *) false ;; esac; }
 sed -n 's/^other //p' "$T/diffs" | while IFS= read -r p; do
-  if hashes "$p"; then say "excused (records Mach-O hashes): $p"; else say "differs (not Mach-O): $p"; echo x >> "$T/bytebad"; fi
+  if hashes "$p"; then say "excused (records Mach-O hashes): $p"
+  elif createdby "$p"; then say "excused (bootjdk's jar wrote it): $p"
+  else say "differs (not Mach-O): $p"; echo x >> "$T/bytebad"; fi
 done
 [ ! -s "$T/bytebad" ] || bad=1
 
