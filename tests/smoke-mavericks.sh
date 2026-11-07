@@ -85,8 +85,9 @@ echo "ok cds: $prefix/lib/server/classes.jsa"
 # spec: PORT.md ruling R18 -- build-jdk-test's runtime half runs here, on the installed JDK, since no
 #       runner executes x86_64; smoke-runtime's required headless check covers the headless default
 bi="$(dirname "$pkg")/build-info-jdk25.txt"
-roots="$(sed -n 's/^ca-certs-roots=//p' "$bi" 2>/dev/null)"
-case "$roots" in ''|*[!0-9]*) fail "$bi records no ca-certs-roots=<count> (package-pkg.sh writes it beside the pkg)" ;; esac
+[ -r "$bi" ] || fail "no readable $bi beside the pkg: package-pkg.sh writes it, and it must record ca-certs-roots (artifacts staged before c00a660 lack that key)"
+roots="$(sed -n 's/^ca-certs-roots=//p' "$bi")"
+case "$roots" in ''|*[!0-9]*) fail "$bi records no ca-certs-roots=<count> (artifacts staged before c00a660 lack it; package one from c00a660 or later)" ;; esac
 "$prefix/bin/keytool" -list -cacerts < /dev/null > "$work/cacerts" 2>&1 \
   || { cat "$work/cacerts" >&2; fail "the installed keytool -list -cacerts failed"; }
 grep -q "^Your keystore contains $roots entries\$" "$work/cacerts" \

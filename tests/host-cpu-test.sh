@@ -52,4 +52,28 @@ for c in "Darwin x86_64 - -:x86_64:yes" "Darwin x86_64 - -:arm64:no" \
   if nat "$t/$f"; then got=yes; else got=no; fi
   [ "$got" = "$want" ] || fail "runs_natively $f on ($h): $got, not $want"
 done
+
+# platform: file(1) without -L describes a symlink, not its target (10.9: "symbolic link to ..."), and a
+#           script launcher is no Mach-O at all, so jdk_runs_natively reads release's OS_ARCH first
+jdk() {  # jdk DIR <java: x86_64|arm64|script|link-x86_64|link-arm64> <OS_ARCH or ->
+  rm -rf "$1"; mkdir -p "$1/bin" "$1/real"
+  case "$2" in
+    script) printf '#!/bin/sh\n' > "$1/bin/java" ;;
+    link-*) cp "$t/${2#link-}" "$1/real/java"; ln -s ../real/java "$1/bin/java" ;;
+    *) cp "$t/$2" "$1/bin/java" ;;
+  esac
+  [ "$3" = - ] || printf 'JAVA_VERSION="25"\nOS_ARCH="%s"\n' "$3" > "$1/release"
+}
+jnat() { ( PATH="$t/bin:$PATH"; . "$here/lib/host-cpu.sh"; jdk_runs_natively "$1" ); }
+for c in "Darwin arm64 1 0:link-x86_64:-:no" "Darwin arm64 1 0:script:x86_64:no" "Darwin arm64 1 0:script:amd64:no" \
+         "Darwin arm64 1 0:arm64:x86_64:no" "Darwin arm64 1 0:link-arm64:-:yes" "Darwin arm64 1 0:script:aarch64:yes" \
+         "Darwin arm64 1 0:script:-:yes" "Darwin x86_64 1 1:script:x86_64:no" "Darwin x86_64 - -:link-x86_64:x86_64:yes" \
+         "Darwin x86_64 - -:script:aarch64:no" "Darwin arm64 1 0:x86_64:-:no" "Darwin arm64 1 0:script:sparcv9:no"; do
+  h="${c%%:*}"; rest="${c#*:}"; j="${rest%%:*}"; rest="${rest#*:}"; a="${rest%%:*}"; want="${rest#*:}"
+  # shellcheck disable=SC2086
+  host $h
+  jdk "$t/jdk" "$j" "$a"
+  if jnat "$t/jdk"; then got=yes; else got=no; fi
+  [ "$got" = "$want" ] || fail "jdk_runs_natively, java $j, OS_ARCH $a, on ($h): $got, not $want"
+done
 echo "PASS: host-cpu"

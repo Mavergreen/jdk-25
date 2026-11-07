@@ -1,8 +1,8 @@
 #!/bin/sh
 # platform: host-agnostic -- reads the tracked scripts and workflows; needs git, and python3 with PyYAML for the workflow half (77 without)
 # usage: sh tests/rosetta-free-test.sh [ROOT]
-#   No x86_64 code executes under Rosetta, CI included (PORT.md ruling R18): x86_64 runs only natively on
-#   Mac OS X 10.9 or in the mavericks-vm guest. A static check: GitHub's arm64 runner has Rosetta, and no
+#   No x86_64 code executes under Rosetta, CI included (PORT.md ruling R18): x86_64 runs only on x86_64
+#   hardware, the 10.9 box and the mavericks-vm guest in practice. A static check: GitHub's arm64 runner has Rosetta, and no
 #   signal this repo can read without root says afterwards whether a process ran translated. It fails when
 #     - any tracked script or workflow runs arch -x86_64 (or arch -arch x86_64);
 #     - a run: step of a job on a macos-* runner runs a JDK's bin/ tool or anything under test-natives/;

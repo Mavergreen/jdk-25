@@ -83,7 +83,7 @@ fi
 
 # spec: PORT.md ruling R18 -- decided by the host's CPU, never by trying: under Rosetta the image would run
 executes=no
-if runs_natively "$img/bin/java"; then executes=yes; fi
+if jdk_runs_natively "$img"; then executes=yes; fi
 
 # spec: ruling R34 -- lib/security/cacerts is the pinned ca-certs release's trusted roots, one entry per
 #       PEM. The image's own keytool reads it where the image runs natively, as on Mac OS X 10.9, which may

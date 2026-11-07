@@ -4,9 +4,9 @@
 #   Compiles and runs tests/java/LegacySmoke.java with JDK_HOME's own javac and java, then runs jshell,
 #   jlink and --version over JDK_HOME/bin. Exit 0 when every check passes, 1 naming each failed check
 #   on stderr, 2 on bad usage, 77 when JDK_HOME is unset (nothing to smoke: run-repo-tests runs this
-#   bare), JDK_HOME/bin/java is not executable, or it is a Mach-O of a CPU this host does not run
-#   natively (tests/lib/host-cpu.sh: an x86_64 JDK on an arm64 Mac, Rosetta or not), decided without
-#   running it.
+#   bare), JDK_HOME/bin/java is not executable, or the JDK is of a CPU this host does not run natively
+#   (tests/lib/host-cpu.sh's jdk_runs_natively, by its release file's OS_ARCH or bin/java read through
+#   symlinks: an x86_64 JDK on an arm64 Mac, Rosetta or not), decided without running it.
 #   --network adds an HttpClient GET of https://github.com (needs the network).
 #   SMOKE_STOCK_JDK=1 passes -Djava.awt.headless=true to the program, for validating this test against
 #   upstream JDK builds only; our builds default to headless and must be run without it.
@@ -63,9 +63,7 @@ if [ ! -x "$java" ]; then
 fi
 # spec: PORT.md ruling R18 -- decided by the host's CPU, never by trying: under Rosetta it would run
 . "$here/lib/host-cpu.sh"
-case "$(file -b "$java" 2>/dev/null)" in
-  Mach-O*) runs_natively "$java" || { echo "SKIP: this host's CPU does not run $java natively (PORT.md ruling R18)"; exit 77; } ;;
-esac
+jdk_runs_natively "$JDK_HOME" || { echo "SKIP: this host's CPU does not run the JDK at $JDK_HOME natively (PORT.md ruling R18)"; exit 77; }
 jrc=0
 "$java" -version > /dev/null 2>&1 || jrc=$?
 [ "$jrc" = 0 ] || { echo "FAIL java-version: $java -version exited $jrc" >&2; exit 1; }

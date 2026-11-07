@@ -33,8 +33,8 @@
 #          listed test of a root that was not run is not checked.
 #          It refuses to run when components/jtreg/version is not the jtreg the source's own CI runs
 #          (JTREG_VERSION in its make/conf/github-actions.conf): a newer jtreg changes what its tests see.
-#          Exits 77 when given no arguments, or a JDK whose bin/java is a Mach-O this host's CPU does not run
-#          natively (tests/lib/host-cpu.sh), without running it; 2 on a usage error.
+#          Exits 77 when given no arguments, or a JDK this host's CPU does not run natively
+#          (tests/lib/host-cpu.sh's jdk_runs_natively), without running it; 2 on a usage error.
 set -eu
 fail() { echo "FAIL: $*"; exit 1; }
 usage() { echo "usage: tests/jtreg.sh <JDK_HOME> <known-failures-file>" >&2; exit 2; }
@@ -50,9 +50,7 @@ case "$2" in /*) known="$2" ;; *) known="$PWD/$2" ;; esac
 [ -r "$known" ] || fail "cannot read $known"
 # spec: PORT.md ruling R18 -- decided by the host's CPU, never by trying: under Rosetta it would run
 . "$here/lib/host-cpu.sh"
-case "$(file -b "$jdk/bin/java" 2>/dev/null)" in
-  Mach-O*) runs_natively "$jdk/bin/java" || { echo "SKIP: this host's CPU does not run $jdk/bin/java natively (PORT.md ruling R18)"; exit 77; } ;;
-esac
+jdk_runs_natively "$jdk" || { echo "SKIP: this host's CPU does not run the JDK at $jdk natively (PORT.md ruling R18)"; exit 77; }
 
 conc="${JTREG_CONC:-}"
 if [ -z "$conc" ]; then
