@@ -7,7 +7,8 @@
 #   build root; jdk_jtreg then builds jtreg without fetching anything. With those caches warm, jdk_jtreg
 #   runs in a fresh build root with wget and curl shadowed on PATH by stubs that record each call and
 #   fail: the build must succeed, with no call recorded and no download line in its output.
-#   A deps file made for another jtreg TAG must be refused before anything is fetched.
+#   A deps file made for another jtreg TAG must be refused before anything is fetched, and a file whose
+#   first URL does not answer must be fetched from the next one.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -40,4 +41,13 @@ MAVERICKS_BUILD_ROOT="$t/root2"
 if (MAVERICKS_ROOT="$t/other"; jdk_jtreg_fetch) > "$t/o" 2>&1; then fail "a deps file made for jtreg-0+0 was taken for $want"; fi
 grep -q "components/jtreg/deps is for jtreg-0+0" "$t/o" || fail "the stale deps file's refusal does not name it: $(cat "$t/o")"
 [ ! -e "$t/root2/jdk-25/jtreg-deps" ] || fail "a stale deps file was refused only after fetching"
+mkdir -p "$t/fb/components/jtreg" "$t/fb/build"
+cp "$MAVERICKS_ROOT/components/jtreg/version" "$t/fb/components/jtreg/version"
+awk '$1 == "testng-license/LICENSE.txt" { $3 = "http://127.0.0.1:9/LICENSE.txt " $3 } { print }' \
+  "$MAVERICKS_ROOT/components/jtreg/deps" > "$t/fb/components/jtreg/deps"
+grep -q '127.0.0.1:9' "$t/fb/components/jtreg/deps" || fail "fixture: no dead first URL written"
+MAVERICKS_BUILD_ROOT="$t/root3"
+(MAVERICKS_ROOT="$t/fb"; jdk_jtreg_fetch) > "$t/o" 2>&1 || fail "a dead first URL was not passed over for the next: $(tail -5 "$t/o")"
+lic="$(awk '$1 == "testng-license/LICENSE.txt" { print $2 }' "$MAVERICKS_ROOT/components/jtreg/deps")"
+[ -s "$t/root3/jdk-25/jtreg-deps/$lic" ] || fail "the license was not fetched from its second URL"
 echo "PASS: jtreg-deps (jtreg $want built with wget and curl shadowed: no download)"

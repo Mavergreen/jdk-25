@@ -3,11 +3,12 @@
 #   usage: sh scripts/pin-jtreg-deps.sh [--check]
 #          Writes components/jtreg/deps: every file the pinned jtreg's make/build.sh downloads (Ant, the JT
 #          Harness and AsmTools sources, JUnit, TestNG and its license, JCommander, Guice), as
-#            <path under jtreg's build/deps> <SHA-256> <URL>
+#            <path under jtreg's build/deps> <SHA-256> <URL> [<fallback URL>...]
 #          after TAG=<components/jtreg/version's TAG>. The versions and URLs come from that jtreg's own
 #          make/build-support/version-numbers, by build.sh's own formulas, and each file must match the
 #          SHA-1 jtreg pins for it there before its SHA-256 is written: jtreg pins SHA-1 only, and
-#          build/toolchain.sh's jdk_jtreg prefetches by SHA-256. Run it whenever the jtreg pin moves.
+#          build/toolchain.sh's jdk_jtreg prefetches by SHA-256, trying the URLs in order. Every URL that
+#          answers must serve the same bytes; at least one must. Run it whenever the jtreg pin moves.
 #          --check writes nothing, and exits 3 when the file is not what it would write.
 #          Exits 0 written or current, 3 --check found it stale, 1 any failure, 2 usage.
 # spec: tests/jtreg-deps-test.sh
@@ -39,7 +40,10 @@ tng="$(v TESTNG_VERSION)"; tngl="$(v TESTNG_LICENSE_VERSION)"; jc="$(v JCOMMANDE
 # platform: build.sh's own URL formulas (make/build.sh, make/build-support/build-common.sh and its asmtools
 #           and jtharness build.sh) and the build/deps paths it downloads to
 {
-  echo "apache-ant-$ant-bin.zip $(v ANT_ARCHIVE_CHECKSUM) https://archive.apache.org/dist/ant/binaries/apache-ant-$ant-bin.zip"
+  # platform: archive.apache.org keeps every Ant release but GitHub's runners reach it only now and then;
+  #           Apache's own mirrors (dlcdn, downloads) keep only the current release and Maven Central has no
+  #           binary zip, and Huawei Cloud's Apache mirror keeps the old ones, byte for byte
+  echo "apache-ant-$ant-bin.zip $(v ANT_ARCHIVE_CHECKSUM) https://archive.apache.org/dist/ant/binaries/apache-ant-$ant-bin.zip https://repo.huaweicloud.com/apache/ant/binaries/apache-ant-$ant-bin.zip"
   echo "jtharness/source.zip $(v JTHARNESS_SRC_ARCHIVE_CHECKSUM) $tools/jtharness/archive/$jth.zip"
   echo "asmtools/source.zip $(v ASMTOOLS_SRC_ARCHIVE_CHECKSUM) $tools/asmtools/archive/$asm.zip"
   echo "junit/junit-platform-console-standalone-$ju.jar $(v JUNIT_JAR_CHECKSUM) $maven/org/junit/platform/junit-platform-console-standalone/$ju/junit-platform-console-standalone-$ju.jar"
@@ -50,11 +54,19 @@ tng="$(v TESTNG_VERSION)"; tngl="$(v TESTNG_LICENSE_VERSION)"; jc="$(v JCOMMANDE
 } > "$T/want"
 {
   echo "TAG=$tag"
-  while read -r p s1 u; do
-    shipyard_curl "$u" "$T/f" || fail "could not fetch $u"
-    got1="$(shasum -a 1 < "$T/f" | cut -c1-40)"
-    [ "$got1" = "$s1" ] || fail "$u is SHA-1 $got1, but $tag pins $s1"
-    echo "$p $(shasum -a 256 < "$T/f" | cut -c1-64) $u"
+  while read -r p s1 urls; do
+    s256=""
+    for u in $urls; do
+      rm -f "$T/f"
+      SHIPYARD_FETCH_TRIES=2 shipyard_curl "$u" "$T/f" || { echo "pin-jtreg-deps: $u did not answer; checking the others" >&2; continue; }
+      got1="$(shasum -a 1 < "$T/f" | cut -c1-40)"
+      [ "$got1" = "$s1" ] || fail "$u is SHA-1 $got1, but $tag pins $s1"
+      got256="$(shasum -a 256 < "$T/f" | cut -c1-64)"
+      [ -z "$s256" ] || [ "$got256" = "$s256" ] || fail "$u serves other bytes than the URL before it"
+      s256="$got256"
+    done
+    [ -n "$s256" ] || fail "no URL for $p answered: $urls"
+    echo "$p $s256 $urls"
   done < "$T/want"
 } > "$T/deps"
 if [ "$CHECK" = 1 ]; then

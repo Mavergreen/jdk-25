@@ -123,6 +123,13 @@ jobs:
             || { echo "::error::wanted the static checks to pass and the runtime half to skip (exit 77), got exit $rc"; exit 1; }
       - name: No step or script of a macOS job runs x86_64 code, which this runner would translate with Rosetta (PORT.md ruling R18)
         run: sh tests/rosetta-free-test.sh
+      # platform: archive.apache.org, which serves jtreg's Ant, answers GitHub's runners only now and then;
+      #           a warm cache needs no network, and shipyard_fetch_verified checks each file's pinned
+      #           SHA-256 before use, so a cached file cannot stand in for another
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/mm-build/jdk-25/jtreg-deps
+          key: jtreg-deps-${{ hashFiles('components/jtreg/deps') }}
       - name: Build the pinned jtreg, which vm-test's guest runs (10.9's curl cannot fetch its dependencies)
         run: |
           set -eu

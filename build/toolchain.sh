@@ -175,10 +175,17 @@ jdk_jtreg_fetch() {
       "$_jt_sha" "$_jt_cache" "$_jt_tag.tar.gz" >&2 || { echo "jdk_jtreg: could not fetch $_jt_tag" >&2; return 1; }
   fi
   mkdir -p "$_jt_dcache"
-  while read -r _jt_p _jt_s _jt_u; do
+  while read -r _jt_p _jt_s _jt_us; do
     case "$_jt_p" in TAG=*|'') continue ;; esac
-    shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s" >&2 || {
-      echo "jdk_jtreg: could not fetch $_jt_u ($_jt_p)" >&2; return 1; }
+    _jt_ok=no; _jt_left="$_jt_us"
+    # platform: every URL but the last gets 2 tries, so a host that is down (archive.apache.org, for
+    #           GitHub's runners) costs seconds, not shipyard_curl's full backoff, before its mirror
+    for _jt_u in $_jt_us; do
+      _jt_left="${_jt_left#"$_jt_u"}"; _jt_left="${_jt_left# }"
+      if [ -n "$_jt_left" ]; then _jt_tries=2; else _jt_tries="${SHIPYARD_FETCH_TRIES:-5}"; fi
+      if SHIPYARD_FETCH_TRIES="$_jt_tries" shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s" >&2; then _jt_ok=yes; break; fi
+    done
+    [ "$_jt_ok" = yes ] || { echo "jdk_jtreg: could not fetch $_jt_p from any of: $_jt_us" >&2; return 1; }
   done < "$_jt_deps"
 }
 jdk_jtreg() {
@@ -187,7 +194,7 @@ jdk_jtreg() {
   if [ ! -x "$_jt_home/bin/jtreg" ]; then
     jdk_jtreg_fetch || return 1
     [ -f "$_jt_src/make/build.sh" ] || { echo "jdk_jtreg: $_jt_tag.tar.gz has no $(basename "$_jt_src")/make/build.sh" >&2; return 1; }
-    while read -r _jt_p _jt_s _jt_u; do
+    while read -r _jt_p _jt_s _jt_us; do
       case "$_jt_p" in TAG=*|'') continue ;; esac
       mkdir -p "$(dirname "$_jt_src/build/deps/$_jt_p")" && cp "$_jt_dcache/$_jt_s" "$_jt_src/build/deps/$_jt_p" || {
         echo "jdk_jtreg: could not place $_jt_p" >&2; return 1; }
