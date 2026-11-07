@@ -32,6 +32,7 @@ what, why on 10.9, provenance and exit.
 | `patches/0017-nio-kqueue-selector-ignores-urgent-only-reads.patch` | the kqueue `Selector` ignores a read event that reports only urgent data while `SO_OOBINLINE` is off: it discards the byte and makes the socket's read filter `EV_CLEAR` until real data or EOF, so `select` neither selects the key, nor returns early, nor spins inside (ruling R26) | none while 10.9 is supported |
 | `patches/0018-nio-normalize-paths-before-apfs.patch` | `jdk.nio.path.useNormalizationFormD` defaults to true before macOS 10.13 (HFS+ only); an explicit `-D` still decides (ruling R27) | none while 10.9 is supported |
 | `patches/0019-build-tool-ldflags.patch` | native build tools (`TARGET_TYPE := BUILD`) add `MAVERGREEN_BUILD_TOOL_LDFLAGS` to their links when it is set, which `build/build-jdk.sh` does on 10.9 only (ruling R56) | upstream gives a native build's build tools their own extra LDFLAGS |
+| `patches/0020-build-no-exploded-image-optimize.patch` | a native build no longer optimizes the exploded image, which a cross build never did, so its jmods' `module-info.class` are the cross build's bytes (ruling R59) | upstream's jmod writes the same bytes whether or not `ModulePackages` is already present |
 
 Parked for release 2, not applied (`patches-gui/`, same headers): `0002-appkit-nsstring-substring`,
 `0003-appkit-window-tabbing-fullsize`, `0005-appkit-tray-icon-nsbutton`, `0006-a11y-legacy-superclass`,
@@ -329,3 +330,13 @@ that every cited one is defined here). Each says what was decided, why, and what
   (R28) starts from, so it should not depend on where the build ran. CI's runners already run in UTC
   (release 1's classlist has no such line), so its builds are unchanged.
   `tests/build-jdk-test.sh` refuses an image whose classlist lists that class.
+- **R59** A native build makes its jmods as a cross build does: `patches/0020` drops upstream's
+  `exploded-image-optimize` from a non-cross build. That step adds `ModulePackages` to each exploded
+  `module-info.class` before `jmod create` extends it, and jmod's `ModuleInfoExtender` then orders
+  the constant pool differently (`ModulePackages` before the module version), so each jmod's
+  `module-info.class` differed from the cross build's in constant pool order alone, with the same
+  content by `javap -v` (reproduced on the arm64 host by running `AddPackagesAttribute` before
+  `jmod create`). Not a class file comparison in `build/compare-builds.sh`: fixing the source keeps
+  the comparison to bytes and needs no JDK to compare with. The cross build never ran that step and
+  is unchanged. Cost: the native build's exploded image, which it runs jmod and jlink from, starts a
+  little slower. Exit: jmod writes the same bytes whether or not `ModulePackages` is present.

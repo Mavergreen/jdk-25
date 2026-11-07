@@ -1,0 +1,29 @@
+What: a native build no longer makes exploded-image depend on exploded-image-optimize, as a
+  cross build already does not.
+Why on 10.9: exploded-image-optimize, upstream's for non-cross builds only, runs
+  AddPackagesAttribute on the exploded image, so each module-info.class already holds
+  ModulePackages when jmod create extends it. jmod's ModuleInfoExtender then puts that attribute's
+  name in its constant pool before the module version, where a cross build's jmod puts it after:
+  every jmod's module-info.class differs from the cross build's in constant pool order alone, and
+  so does lib/modules, which holds them. Without it a native build makes its jmods exactly as a cross
+  build does (ruling R59), and build/compare-builds.sh needs no class file normalizing. The
+  optimization only shortens the startup of the exploded image, which a native build runs jmod
+  and jlink from.
+Provenance: ours.
+Exit: upstream's jmod writes the same bytes whether or not ModulePackages is already present.
+
+--- a/make/Main.gmk
++++ b/make/Main.gmk
+@@ -1216,9 +1216,9 @@
+ exploded-image: exploded-image-base release-file
+ # When cross compiling, no need to optimize the exploded image since it won't
+ # be runnable on the host platform anyway.
+-ifneq ($(COMPILE_TYPE), cross)
+-  exploded-image: exploded-image-optimize
+-endif
++# Mavergreen: a native build does not optimize it either. The optimization adds
++# ModulePackages to each exploded module-info.class, which jmod then extends in
++# a different constant pool order than a cross build's jmod does.
+ 
+ # The runnable-buildjdk target guarantees that the buildjdk is done
+ # building and ready to be used. The exact set of dependencies it needs
