@@ -126,6 +126,8 @@ jobs:
       - name: Build the pinned jtreg, which vm-test's guest runs (10.9's curl cannot fetch its dependencies)
         run: |
           set -eu
+          # platform: a sourced script's $0 is the step's shell, so toolchain.sh cannot find the repo from it
+          MAVERICKS_ROOT="$GITHUB_WORKSPACE"; export MAVERICKS_ROOT
           home="$(. build/toolchain.sh && jdk_jtreg "$(jdk_boot_jdk)")"
           COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/jtreg.tar.gz" -C "$home" .
       - name: Pack the image, its build-info and its test natives
