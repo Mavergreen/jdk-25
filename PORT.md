@@ -195,6 +195,12 @@ that every cited one is defined here). Each says what was decided, why, and what
   Exit: the family's SDK-declaration facility widened to AppKit.
 - **R17** C++ code compiled against clang22's libc++ headers links clang22's libc++, never the 10.9
   SDK's: mixing the two is the bug.
+- **R18** No Rosetta anywhere, CI included: x86_64 code executes in exactly two places, natively on
+  Mac OS X 10.9 and in the mavericks-vm guest, the on-target test. Scripts decide by the host's CPU,
+  never by trying to execute (`tests/lib/host-cpu.sh`), so an arm64 runner that has Rosetta runs
+  nothing of the image: build-jdk-test's runtime half skips there, and `tests/smoke-mavericks.sh`
+  checks the installed JDK in the guest instead. `tests/rosetta-free-test.sh` keeps it so. Cost:
+  nothing of the image runs on a modern Mac; its runtime checks wait for the guest.
 - **R19** Man pages are generated with a pinned pandoc fetched into the build root (Renovate-tracked,
   never installed system-wide). Cost: a native 10.9 build cannot run that pandoc.
 - **R20** No dSYMs (`--with-native-debug-symbols=none`): the image is about 180 MB smaller, as Apple's

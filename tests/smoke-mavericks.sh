@@ -9,6 +9,8 @@
 #              checks the manifest version and /usr/libexec/java_home -v 25; with none, prints
 #              "skip upgrade: no previous release pinned" and installs PKG;
 #            the manifest version is JDK_VERSION, and the postinstall wrote lib/server/classes.jsa;
+#            the installed keytool -list -cacerts holds the ca-certs-roots that the build-info-jdk25.txt
+#              beside PKG records, ISRG Root X1 among them;
 #            JDK_HOME=/usr/local/mavergreen/jdk25 sh tests/smoke-runtime.sh --network, where 77 is a
 #              failure: on this box the JDK must run;
 #            java-25 -version and javac-25 -version from /usr/local/mavergreen/bin;
@@ -80,6 +82,19 @@ echo "ok manifest: $JDK_VERSION"
 [ -s "$prefix/lib/server/classes.jsa" ] \
   || fail "the postinstall wrote no $prefix/lib/server/classes.jsa; /var/log/install.log says why"
 echo "ok cds: $prefix/lib/server/classes.jsa"
+# spec: PORT.md ruling R18 -- build-jdk-test's runtime half runs here, on the installed JDK, since no
+#       runner executes x86_64; smoke-runtime's required headless check covers the headless default
+bi="$(dirname "$pkg")/build-info-jdk25.txt"
+roots="$(sed -n 's/^ca-certs-roots=//p' "$bi" 2>/dev/null)"
+case "$roots" in ''|*[!0-9]*) fail "$bi records no ca-certs-roots=<count> (package-pkg.sh writes it beside the pkg)" ;; esac
+"$prefix/bin/keytool" -list -cacerts < /dev/null > "$work/cacerts" 2>&1 \
+  || { cat "$work/cacerts" >&2; fail "the installed keytool -list -cacerts failed"; }
+grep -q "^Your keystore contains $roots entries\$" "$work/cacerts" \
+  || fail "the installed keytool -list -cacerts: $(grep '^Your keystore contains' "$work/cacerts" || echo 'no count'), not $roots"
+# platform: ISRG Root X1 (SHA-1 CA:BD:2A:79:...), Let's Encrypt's root; a file name's alias is lowercase
+grep -q '^cabd2a79a1076a31f21d253635cb039d4329a5e8\.pem \[jdk\],' "$work/cacerts" \
+  || fail "the installed cacerts has no ISRG Root X1 (cabd2a79a1076a31f21d253635cb039d4329a5e8.pem [jdk])"
+echo "ok cacerts: $roots roots, ISRG Root X1 among them"
 
 rc=0
 JDK_HOME="$prefix" sh "$here/smoke-runtime.sh" --network || rc=$?

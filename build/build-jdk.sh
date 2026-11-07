@@ -140,6 +140,7 @@ sh "$SHIPYARD_SCRIPTS/build-info.sh" "$root/build-info.txt" \
   "sdk=$(sdk_pin x86_64)" \
   "appkit-sdk=$(sdk_pin arm64)" \
   "ca-certs=$(jdk_pin ca-certs)" \
+  "ca-certs-roots=$(find "$cacerts" -name '*.pem' | wc -l | tr -d ' ')" \
   "pandoc=$(if [ -n "$pandoc" ]; then sed -n 's/^VERSION=//p' "$MAVERICKS_ROOT/components/pandoc/version"; else echo none; fi)" \
   "features=$features"
 echo "build-jdk: $root/image"

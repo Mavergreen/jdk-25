@@ -150,7 +150,22 @@ run "$J"
 mkjdk "$J"
 printf '#!/bin/sh\nexit 126\n' > "$J/bin/java"; chmod +x "$J/bin/java"
 run "$J"
-[ "$rc" = 77 ] || fail "java that cannot exec (126): expected 77, got $rc"
+[ "$rc" = 1 ] || fail "a script java that exits 126 (a broken java, not a foreign CPU): expected 1, got $rc"
+
+# spec: PORT.md ruling R18 -- a java of the architecture this host does not run natively (x86_64 on an
+#       arm64 Mac, Rosetta or not) is never executed: 77, with nothing of the JDK run
+mkjdk "$J"
+. "$here/lib/host-cpu.sh"
+if host_runs_x86_64; then
+  printf '\317\372\355\376\014\000\000\001\000\000\000\000\002\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000' > "$J/bin/java"
+else
+  printf '\317\372\355\376\007\000\000\001\003\000\000\000\002\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000' > "$J/bin/java"
+fi
+chmod +x "$J/bin/java"
+printf '#!/bin/sh\necho ran >> "%s/foreign-ran"\nexit 0\n' "$T" > "$J/bin/javac"; chmod +x "$J/bin/javac"
+run "$J"
+[ "$rc" = 77 ] || fail "a java of a CPU this host does not run natively: expected 77, got $rc"
+[ ! -e "$T/foreign-ran" ] || fail "a java of a CPU this host does not run natively: the JDK's tools ran"
 
 mkjdk "$J"
 printf '#!/bin/sh\nexit 1\n' > "$J/bin/java"; chmod +x "$J/bin/java"

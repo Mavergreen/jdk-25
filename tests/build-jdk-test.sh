@@ -4,8 +4,10 @@
 #   Checks the image build/build-jdk.sh left in $(jdk_build_root)/image, or JDK_IMAGE, with its test natives
 #   (JDK_TEST_NATIVES) and build-info.txt (JDK_BUILD_INFO) beside it. Exits 77 (skip) unless JDK_BUILD=1,
 #   and off macOS. Every static check runs on any Mac; the default-headless and keytool -cacerts checks
-#   need the image's bin/java to execute, and where it cannot (an arm64 Mac without Rosetta) the
-#   static checks still decide PASS or FAIL and the run then exits 77 naming the check it could not run.
+#   execute the image, so they run only where this host's CPU runs the image's bin/java natively
+#   (tests/lib/host-cpu.sh: Mac OS X 10.9). Anywhere else (an arm64 Mac, Rosetta or not) nothing of the
+#   image is executed: the static checks decide PASS or FAIL, cacerts is read with the boot JDK's keytool,
+#   and the run exits 77 naming what it left to tests/smoke-mavericks.sh in the 10.9 guest.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -14,6 +16,7 @@ fail() { echo "FAIL $*" >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || { echo "SKIP: build-jdk needs macOS"; exit 77; }
 
 . "$MAVERICKS_ROOT/build/toolchain.sh"
+. "$here/lib/host-cpu.sh"
 img="${JDK_IMAGE:-$(jdk_build_root)/image}"
 [ -d "$img" ] || fail "no image at $img; run sh build/build-jdk.sh"
 for d in bin lib conf jmods include legal man release; do
@@ -78,15 +81,13 @@ if otool -L "$img/lib/libzip.dylib" | grep -q '/libc++abi\.dylib '; then
   fail "lib/libzip.dylib, which is C, links libc++abi.dylib: the links lack -Wl,-dead_strip_dylibs"
 fi
 
-# platform: bin/java exits 126 or 127, or says "Bad CPU type", where this host cannot execute x86_64
-#           (an arm64 Mac without Rosetta); any other failure is the image's, which the checks running it report.
-rc=0; "$img/bin/java" -version > "$T/probe" 2>&1 || rc=$?
-executes=yes
-case "$rc" in 126|127) executes=no ;; 0) ;; *) ! grep -q 'Bad CPU type' "$T/probe" || executes=no ;; esac
+# spec: PORT.md ruling R18 -- decided by the host's CPU, never by trying: under Rosetta the image would run
+executes=no
+if runs_natively "$img/bin/java"; then executes=yes; fi
 
 # spec: ruling R34 -- lib/security/cacerts is the pinned ca-certs release's trusted roots, one entry per
-#       PEM. The image's own keytool reads it where the image executes, as on Mac OS X 10.9, which may have
-#       no boot JDK installed; the boot JDK's only where it cannot.
+#       PEM. The image's own keytool reads it where the image runs natively, as on Mac OS X 10.9, which may
+#       have no boot JDK installed; the boot JDK's everywhere else.
 roots="$(jdk_ca_certs)" || fail "jdk_ca_certs failed"
 if [ "$executes" = yes ]; then keytool="$img/bin/keytool"
 else boot="$(jdk_boot_jdk)" || fail "jdk_boot_jdk failed"; keytool="$boot/bin/keytool"
@@ -100,6 +101,10 @@ grep -q "^Your keystore contains $want entries\$" "$T/cacerts" \
 grep -q '^cabd2a79a1076a31f21d253635cb039d4329a5e8\.pem \[jdk\],' "$T/cacerts" \
   || fail "lib/security/cacerts has no ISRG Root X1 (cabd2a79a1076a31f21d253635cb039d4329a5e8.pem [jdk])"
 echo "ok cacerts: $want roots from ca-certs $(jdk_pin ca-certs)"
+# spec: PORT.md ruling R18 -- tests/smoke-mavericks.sh checks the installed JDK's keytool -cacerts against
+#       this count in the 10.9 guest, which cannot fetch ca-certs itself, so build-info.txt carries it
+grep -qx "ca-certs-roots=$want" "${JDK_BUILD_INFO:-$(jdk_build_root)/build-info.txt}" \
+  || fail "build-info.txt does not record ca-certs-roots=$want"
 
 # spec: ruling R29 -- the jtreg test natives build-jdk.sh leaves beside the image, for tests/jtreg.sh's
 #       JTREG_NATIVEPATH on Mac OS X 10.9: present for both roots, and built for x86_64 only: a universal
@@ -132,16 +137,12 @@ for ak in x86_64:sdk arm64:appkit-sdk; do
   grep -Fqx "${ak#*:}=$4@sha256:$2" "$info" || fail "$info does not record ${ak#*:}=$4@sha256:$2"
 done
 
-rc=0
-"$img/bin/java" -XshowSettings:properties -version > "$T/props" 2>&1 || rc=$?
-case "$rc" in
-  0) ;;
-  126|127) echo "SKIP headless-default, keytool-cacerts: $img/bin/java cannot execute on this host"; exit 77 ;;
-  *) if grep -q 'Bad CPU type' "$T/props"; then
-       echo "SKIP headless-default, keytool-cacerts: $img/bin/java cannot execute on this host"; exit 77
-     fi
-     cat "$T/props" >&2; fail "bin/java -XshowSettings:properties -version exited $rc" ;;
-esac
+if [ "$executes" = no ]; then
+  echo "SKIP headless-default, keytool-cacerts: this host's CPU does not run the image's x86_64 natively (PORT.md ruling R18); tests/smoke-mavericks.sh checks the installed JDK in the 10.9 guest"
+  exit 77
+fi
+"$img/bin/java" -XshowSettings:properties -version > "$T/props" 2>&1 \
+  || { cat "$T/props" >&2; fail "bin/java -XshowSettings:properties -version failed"; }
 grep -Eq '^ +java\.awt\.headless = true$' "$T/props" \
   || fail "java.awt.headless is not true by default: $(grep 'java.awt.headless' "$T/props" || echo unset)"
 "$img/bin/keytool" -list -cacerts < /dev/null > "$T/own-cacerts" 2>&1 \

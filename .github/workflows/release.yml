@@ -113,7 +113,7 @@ jobs:
         run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
       - name: Cross-build the x86_64 Mac OS X 10.9 JDK image and its jtreg test natives
         run: sh build/build-jdk.sh
-      - name: The image's static checks (its runtime half runs on-target, in vm-test)
+      - name: The image's static checks (its runtime half runs on the installed JDK, in vm-test's 10.9 guest)
         run: |
           set -eu
           rc=0
@@ -121,6 +121,8 @@ jobs:
           cat "$RUNNER_TEMP/build-jdk-test.log"
           [ "$rc" -eq 77 ] && grep -q '^ok static: ' "$RUNNER_TEMP/build-jdk-test.log" \
             || { echo "::error::wanted the static checks to pass and the runtime half to skip (exit 77), got exit $rc"; exit 1; }
+      - name: No step or script of a macOS job runs x86_64 code, which this runner would translate with Rosetta (PORT.md ruling R18)
+        run: sh tests/rosetta-free-test.sh
       - name: Build the pinned jtreg, which vm-test's guest runs (10.9's curl cannot fetch its dependencies)
         run: |
           set -eu
@@ -175,7 +177,7 @@ jobs:
           set -eu
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
           sh build/package-pkg.sh --updater-app "$MAVERICKS_BUILD_ROOT/jdk25-updater.app" --version "$V" --out "$DIST"
-      - name: The real pkg, expanded and its postinstall run, on this arm64 Mac
+      - name: The real pkg, expanded and read on this arm64 Mac (its postinstall runs on 10.9, in vm-test)
         run: JDK_PACKAGE_REAL=1 JDK_UPDATER_APP="$MAVERICKS_BUILD_ROOT/jdk25-updater.app" sh tests/package-manifest-test.sh
       - name: Release notes
         run: |
