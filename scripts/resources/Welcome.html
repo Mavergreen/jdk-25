@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,Helvetica,sans-serif;font-size:12px">
+<p>This installs <b>JDK 25 for Mavericks</b>, based on the OpenJDK source code, built to run on Mac&nbsp;OS&nbsp;X&nbsp;10.9
+(Mavericks) and later on Intel Macs, into <code>/usr/local/mavergreen/jdk25/</code>, and registers it with Mac&nbsp;OS&nbsp;X as
+<code>/Library/Java/JavaVirtualMachines/mavergreen-jdk25.jdk</code>.</p>
+<p>Open a new Terminal window: <code>java-25</code> and <code>javac-25</code> are on your <code>PATH</code>, and
+<code>/usr/libexec/java_home -v 25</code> finds this JDK.</p>
+<p>The installer finishes by generating the JDK's class data sharing archive, which makes the JDK start faster.
+If that step fails, the JDK still works, and the reason is in <code>/var/log/install.log</code>.</p>
+<p>A background updater (Sparkle) checks daily for new releases. This is an unofficial community build, not affiliated
+with or endorsed by Oracle or the OpenJDK Community.</p>
+<p>Java and OpenJDK are trademarks or registered trademarks of Oracle and/or its affiliates.</p>
+</body></html>

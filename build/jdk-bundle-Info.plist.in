@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleExecutable</key>
+	<string>libjli.dylib</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.mavergreen.jdk.jdk25.jdk</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Mavericks JDK 25</string>
+	<key>CFBundlePackageType</key>
+	<string>BNDL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@UPSTREAM@</string>
+	<key>JavaVM</key>
+	<dict>
+		<key>JVMCapabilities</key>
+		<array>
+			<string>CommandLine</string>
+			<string>JNI</string>
+			<string>BundledApp</string>
+		</array>
+		<key>JVMMinimumSystemVersion</key>
+		<string>10.9</string>
+		<key>JVMPlatformVersion</key>
+		<string>25</string>
+		<key>JVMVendor</key>
+		<string>Mavergreen</string>
+		<key>JVMVersion</key>
+		<string>@UPSTREAM@</string>
+	</dict>
+</dict>
+</plist>
