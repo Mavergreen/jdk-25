@@ -21,7 +21,10 @@
 #   elsewhere. The shim takes OpenJDK's "codesign --remove-signature FILE", which 10.9's codesign refuses,
 #   as a no-op that leaves FILE's bytes alone, and hands every other call to /usr/bin/codesign unchanged:
 #   here, "-f -s - --entitlements PLIST FILE" ad hoc signs an x86_64 dylib. That 10.9's own codesign
-#   accepts that call, entitlements included, only a 10.9 box can show.
+#   accepts that call, entitlements included, only a 10.9 box can show. A dylib whose one function is
+#   hidden, linked as OpenJDK links a jtreg native (-dead_strip, jdk_link_flags), has a segment at file
+#   offset 0 with no sections, which 10.9's codesign_allocate cannot sign; the shim leaves it unchanged,
+#   says so and succeeds. When lld stops writing that, the test fails: the shim's skip may then go.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -135,4 +138,21 @@ cp "$t/hash" "$t/tosign"
 "$cs" -f -s - --entitlements "$t/ent.plist" "$t/tosign" > "$t/o" 2>&1 || fail "the codesign shim did not pass -f -s - --entitlements through: $(cat "$t/o")"
 /usr/bin/codesign -d -v "$t/tosign" > "$t/o" 2>&1 || fail "the codesign shim's signing left no signature: $(cat "$t/o")"
 grep -q 'Signature=adhoc' "$t/o" || fail "the codesign shim's signing is not ad hoc: $(cat "$t/o")"
+cc="$(onhost 'jdk_toolchain > /dev/null 2>&1 && printf %s "$CC"')" || fail "jdk_toolchain failed"
+printf 'extern int dummy() {\n  return 0;\n}\n' > "$t/nocode.c"
+# shellcheck disable=SC2086  # CC and the link flags are command lines
+$cc -fvisibility=hidden -mmacosx-version-min=10.9 -dynamiclib -Wl,-dead_strip $lk -o "$t/nocode.dylib" "$t/nocode.c" > "$t/o" 2>&1 \
+  || fail "fixture: could not link $t/nocode.dylib: $(head -5 "$t/o")"
+# spec: PORT.md ruling R57 -- cctools-862's add_code_sig_load_command takes a sectionless segment's
+#       file offset as where the first section starts
+otool -l "$t/nocode.dylib" | awk '$1 == "cmd" { c = $2 } $1 == "fileoff" { o = $2 } $1 == "nsects" && c == "LC_SEGMENT_64" && o == 0 { print $2 }' > "$t/o"
+[ "$(cat "$t/o")" = 0 ] || fail "lld now gives a codeless dylib's segment at file offset 0 sections ($(cat "$t/o")): 10.9's codesign_allocate may sign it, and the shim's skip (PORT.md ruling R57) may go"
+cp "$t/nocode.dylib" "$t/nocode.before"
+"$cs" -f -s - --entitlements "$t/ent.plist" "$t/nocode.dylib" > "$t/o" 2>&1 || fail "the codesign shim failed on a codeless dylib: $(cat "$t/o")"
+cmp -s "$t/nocode.dylib" "$t/nocode.before" || fail "the codesign shim changed a codeless dylib 10.9's codesign_allocate cannot sign"
+grep -q 'left unsigned' "$t/o" || fail "the codesign shim left a codeless dylib unsigned without saying so: $(cat "$t/o")"
+/usr/bin/codesign -f -s - "$t/nocode.before" > /dev/null 2>&1 || fail "fixture: could not ad hoc sign $t/nocode.before"
+cp "$t/nocode.before" "$t/nocode.signed"
+"$cs" -f -s - "$t/nocode.signed" > "$t/o" 2>&1 || fail "the codesign shim did not re-sign a signed codeless dylib: $(cat "$t/o")"
+if grep -q 'left unsigned' "$t/o"; then fail "the codesign shim skipped a codeless dylib that already has LC_CODE_SIGNATURE"; fi
 echo "PASS: native-host"

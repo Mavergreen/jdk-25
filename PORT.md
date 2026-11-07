@@ -307,3 +307,12 @@ that every cited one is defined here). Each says what was decided, why, and what
   `build/compare-builds.sh` already lets differ (R55). Cost: 10.9's codesign writes an older
   CodeDirectory (v=20100) than the runner's (v=20400). Exit: OpenJDK drops the removal step, or the
   family gains a codesign that 10.9 builds use.
+  The shim also leaves unsigned, saying so on stderr, an unsigned Mach-O whose segment at file
+  offset 0 has no sections. lld writes one when `-dead_strip` leaves a link no code (the jtreg native
+  `libHasNoEntryPoint`, whose one function is hidden), and 10.9's `codesign_allocate` (cctools-862,
+  `misc/codesign_allocate.c` `add_code_sig_load_command`) then takes that segment's offset, 0, as
+  where the first section starts and refuses to add `LC_CODE_SIGNATURE` ("larger updated load
+  commands do not fit"); later cctools skip a segment at offset 0. No `-headerpad` helps. Such a file
+  has no code to sign, and release 1's image holds none. Not a section added to every native link:
+  that would change every native Mach-O, where this changes only the files 10.9 cannot sign. Exit:
+  the same, or lld keeps an empty `__text`.

@@ -20,8 +20,10 @@
 #          jdk_build_tool_ldflags prints, on Mac OS X 10.9 only, jdk_link_flags, which build/build-jdk.sh
 #          gives the native build tools' links through patches/0019 (ruling R56); elsewhere nothing.
 #          jdk_codesign_shim DIR, on Mac OS X 10.9 only, writes DIR/codesign, which takes
-#          "--remove-signature FILE" as a no-op and passes every other call to /usr/bin/codesign, and
-#          prints its path for configure's CODESIGN (ruling R57); elsewhere it prints and writes nothing.
+#          "--remove-signature FILE" as a no-op, leaves an unsigned FILE whose segment at file offset 0
+#          has no sections unsigned (saying so on stderr), and passes every other call to
+#          /usr/bin/codesign, and prints its path for configure's CODESIGN (ruling R57); elsewhere it
+#          prints and writes nothing.
 #          jdk_target_args prints configure's --openjdk-target for the cross build, and nothing on Mac
 #          OS X 10.9, which builds natively: there build, host and target are all x86_64 Darwin.
 #          jdk_compat_guard MACHO... runs shipyard's compat guard on a JDK image's Mach-O, with the
@@ -183,11 +185,27 @@ jdk_codesign_shim() {
   jdk_host_is_109 || return 0
   # spec: PORT.md ruling R57 -- OpenJDK runs "codesign --remove-signature FILE" before
   #       "codesign -f -s ... FILE" on every Mach-O it links, and 10.9's codesign refuses the first on
-  #       every binary ("unsupported type or version of signature"); -f replaces a signature anyway
-  mkdir -p "$1" && printf '%s\n' '#!/bin/sh' \
-    'if [ "$#" = 2 ] && [ "$1" = --remove-signature ]; then exit 0; fi' \
-    'exec /usr/bin/codesign "$@"' > "$1/codesign" && chmod +x "$1/codesign" \
+  #       every binary ("unsupported type or version of signature"); -f replaces a signature anyway.
+  #       10.9's codesign_allocate (cctools-862) cannot add a signature to an unsigned Mach-O with a
+  #       sectionless segment at file offset 0, which lld writes when dead-stripping leaves no code, so
+  #       the shim leaves exactly those unsigned and says so.
+  mkdir -p "$1" && cat > "$1/codesign" <<'EOF' && chmod +x "$1/codesign" \
     || { echo "jdk_codesign_shim: could not write $1/codesign" >&2; return 1; }
+#!/bin/sh
+if [ "$#" = 2 ] && [ "$1" = --remove-signature ]; then exit 0; fi
+for f; do :; done
+if [ "$#" -gt 0 ] && [ -f "$f" ] && /usr/bin/otool -l "$f" 2> /dev/null | /usr/bin/awk '
+  function seg() { if (s && n == 0 && o == 0 && z != 0) bad = 1 }
+  $1 == "cmd" { seg(); s = ($2 == "LC_SEGMENT" || $2 == "LC_SEGMENT_64"); if ($2 == "LC_CODE_SIGNATURE") cs = 1; n = o = z = -1 }
+  $1 == "nsects" { n = $2 + 0 }
+  $1 == "fileoff" { o = $2 + 0 }
+  $1 == "filesize" { z = $2 + 0 }
+  END { seg(); exit !(bad && !cs) }'; then
+  echo "codesign: $f left unsigned: its segment at file offset 0 has no sections, so 10.9's codesign_allocate cannot add a signature (PORT.md ruling R57)" >&2
+  exit 0
+fi
+exec /usr/bin/codesign "$@"
+EOF
   printf '%s\n' "$1/codesign"
 }
 
