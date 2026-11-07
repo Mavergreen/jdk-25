@@ -2,10 +2,14 @@
 # platform: macOS-only -- runs the product's JDK, a macOS build, and jtreg on it
 #   usage: [JTREG_HOME=<jtreg>] [JTREG_SRC=<jdk source>] [JTREG_WORK=<dir>] [JTREG_CONC=<n>] [JTREG_ROOTS="hotspot jdk"]
 #          [JTREG_NATIVEPATH=<test natives>]
-#          sh tests/jtreg.sh <JDK_HOME> <known-failures-file>
+#          sh tests/jtreg.sh <JDK_HOME> <known-failures-file>...
 #          Runs a jtreg conformance subset of the pinned jdk25u source's own tests against <JDK_HOME>,
-#          headless, and passes only when every test that fails is one <known-failures-file> lists and
-#          every listed test ran. A listed test that passed is printed as `stale: <id>`, which does not
+#          headless, and passes only when every test that fails is one the known-failures files list and
+#          every listed test ran. The files are read together: tests/known-failures/x86_64-10.9.txt is the
+#          release gate's, for a clean single-NIC 10.9 like the mavericks-vm guest, and a host's own
+#          overlay adds what fails only there, such as
+#            sh tests/jtreg.sh JDK tests/known-failures/x86_64-10.9.txt tests/known-failures/x86_64-10.9-multihomed-host.txt
+#          Each file is checked as one; a test listed in two of them is an error. A listed test that passed is printed as `stale: <id>`, which does not
 #          fail the run: a fix arriving should not break the gate, but its line should go. One line per test:
 #            <hotspot|jdk>:<test id>  # <reason>
 #          where <test id> is the test's path under its root as jtreg reports it, with any #id suffix.
@@ -37,17 +41,25 @@
 #          (tests/lib/host-cpu.sh's jdk_runs_natively), without running it; 2 on a usage error.
 set -eu
 fail() { echo "FAIL: $*"; exit 1; }
-usage() { echo "usage: tests/jtreg.sh <JDK_HOME> <known-failures-file>" >&2; exit 2; }
+usage() { echo "usage: tests/jtreg.sh <JDK_HOME> <known-failures-file>..." >&2; exit 2; }
 if [ $# -eq 0 ]; then
-  echo "SKIP: usage: tests/jtreg.sh <JDK_HOME> <known-failures-file>"; exit 77
+  echo "SKIP: usage: tests/jtreg.sh <JDK_HOME> <known-failures-file>..."; exit 77
 fi
-[ $# -eq 2 ] || usage
+[ $# -ge 2 ] || usage
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
 jdk="$(cd "$1" 2>/dev/null && pwd)" || fail "no directory $1"
-case "$2" in /*) known="$2" ;; *) known="$PWD/$2" ;; esac
+shift
 [ -x "$jdk/bin/java" ] || fail "$jdk/bin/java is not executable"
-[ -r "$known" ] || fail "cannot read $known"
+knowns=""; nl='
+'
+for k in "$@"; do
+  case "$k" in /*) ;; *) k="$PWD/$k" ;; esac
+  case "$k" in *"$nl"*) fail "a known-failures file name holds a newline" ;; esac
+  [ -r "$k" ] || fail "cannot read $k"
+  knowns="$knowns${knowns:+$nl}$k"
+done
+known="$(printf '%s\n' "$knowns" | sed 's|.*/||' | tr '\n' ' ' | sed 's/ $//; s/ / and /g')"
 # spec: PORT.md ruling R18 -- decided by the host's CPU, never by trying: under Rosetta it would run
 . "$here/lib/host-cpu.sh"
 jdk_runs_natively "$jdk" || { echo "SKIP: this host's CPU does not run the JDK at $jdk natively (PORT.md ruling R18)"; exit 77; }
@@ -71,14 +83,23 @@ fi
 t="$(mktemp -d "${TMPDIR:-/tmp}/jtreg.XXXXXX")"
 trap 'rm -rf "$t"' EXIT
 : > "$t/listed"
-awk -v roots=" $roots " -v d="$t" '
-  /^[ \t]*$/ || /^#/ { next }
-  $0 !~ /^(hotspot|jdk):[^ \t]+[ \t]+#[ \t]*[^ \t]/ {
-    printf "line %d is not `<hotspot|jdk>:<test id>  # <reason>`: %s\n", NR, $0; bad = 1; next }
-  { id = $1 }
-  seen[id]++ { printf "line %d lists %s again\n", NR, id; bad = 1; next }
-  index(roots, " " substr(id, 1, index(id, ":") - 1) " ") { print id > (d "/listed") }
-  END { exit bad }' "$known" > "$t/known-errors" || fail "$known: $(cat "$t/known-errors")"
+# spec: PORT.md ruling R54 -- each file is checked as one, and no test may be listed in two of them
+: > "$t/all"
+while IFS= read -r k; do
+  awk -v roots=" $roots " -v d="$t" -v f="$k" '
+    /^[ \t]*$/ || /^#/ { next }
+    $0 !~ /^(hotspot|jdk):[^ \t]+[ \t]+#[ \t]*[^ \t]/ {
+      printf "%s: line %d is not `<hotspot|jdk>:<test id>  # <reason>`: %s\n", f, FNR, $0; bad = 1; next }
+    { id = $1 }
+    seen[id]++ { printf "%s: line %d lists %s again\n", f, FNR, id; bad = 1; next }
+    { print id "\t" f >> (d "/all") }
+    index(roots, " " substr(id, 1, index(id, ":") - 1) " ") { print id >> (d "/listed") }
+    END { exit bad }' "$k" > "$t/known-errors" || fail "$(cat "$t/known-errors")"
+done <<KNOWNS
+$knowns
+KNOWNS
+awk -F '\t' 'first[$1] != "" { printf "%s lists %s, which %s also lists\n", $2, $1, first[$1]; bad = 1; next } { first[$1] = $2 } END { exit bad }' \
+  "$t/all" > "$t/known-errors" || fail "$(cat "$t/known-errors")"
 LC_ALL=C sort -o "$t/listed" "$t/listed"
 
 need_toolchain() { [ -n "${_tc:-}" ] || { . "$MAVERICKS_ROOT/build/toolchain.sh"; _tc=1; }; }

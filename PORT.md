@@ -221,7 +221,8 @@ that every cited one is defined here). Each says what was decided, why, and what
   `tests/jtreg.sh` passes `-nativepath` when given them.
 - **R30** UDP to a socket bound to one of the host's own non-loopback addresses, and multicast, are
   dropped on the multi-NIC 10.9 machine the gate was first run on (also from C and `nc`, so not the
-  JDK); those tests are listed with that reason until they run on a single-NIC 10.9.
+  JDK). Its exit is met: they pass on a single-NIC 10.9 in the mavericks-vm guest, so they live in
+  `tests/known-failures/x86_64-10.9-multihomed-host.txt` (R54), not the release gate's list.
 - **R31** `OutOfBand#id0` stays listed: its remaining case is a 10.9 kernel bug (normal data queued
   before an urgent mark is never reported readable by kqueue or poll; reproduced in C). R26's spin is
   fixed; a peer that mixes urgent and normal data can stall its own connection.
@@ -261,3 +262,10 @@ that every cited one is defined here). Each says what was decided, why, and what
   handed to configure as `AUTOCONF`, so no host's own autoconf (pkgsrc's) decides the generated
   configure. Cost: about a minute on a build root's first build; a native 10.9 build needs
   `/usr/bin/clang` (the Command Line Tools), as `BUILD_CC` already does.
+- **R54** The guest's jtreg gate is the release gate, so `tests/known-failures/x86_64-10.9.txt` lists
+  only what fails on a clean single-NIC 10.9, which the guest is. What fails only because of one host
+  (the multi-homed box's network: the R30 lines, a host name with two addresses, a slow resolver)
+  lives in that host's overlay, `tests/known-failures/x86_64-10.9-multihomed-host.txt`, which
+  `tests/jtreg.sh` reads after the main list (`tests/jtreg.sh JDK tests/known-failures/x86_64-10.9.txt
+  tests/known-failures/x86_64-10.9-multihomed-host.txt`), so the release gate is not blind to them.
+  Cost: a native gate on that box must pass the overlay too.

@@ -71,9 +71,11 @@ EOF
 
 conc=""; roots=""; natives=""
 fixture() { rm -f "$t/fake/"*; mkdir -p "$t/fake"; cp "$t/fx/hotspot.summary" "$t/fx/jdk.summary" "$t/fake/"; }
-run() {
+extra=""
+run() {  # run: jtreg.sh on $t/known, then each file $extra names
+  # shellcheck disable=SC2086  # extra is a list of space-free paths
   JTREG_HOME="$t/jtreg" JTREG_SRC="$t/src" JTREG_WORK="$t/work" JTREG_CONC="$conc" JTREG_ROOTS="$roots" JTREG_NATIVEPATH="$natives" \
-    FAKE_DIR="$t/fake" sh "$script" "$t/jdk" "$t/known" > "$t/out" 2>&1
+    FAKE_DIR="$t/fake" sh "$script" "$t/jdk" "$t/known" $extra > "$t/out" 2>&1
 }
 says() { grep -q -e "$1" "$t/out" || { echo "FAIL $2: wanted \"$1\" in: $(cat "$t/out")"; exit 1; }; }
 passes() { run || { echo "FAIL $1: $(cat "$t/out")"; exit 1; }; }
@@ -140,6 +142,21 @@ says ', 1 stale' "stale count"
 
 { cat "$t/fx/known.txt"; echo 'jdk:java/net/Gone.java  # canned: deleted upstream'; } > "$t/known"
 fails "a listed test that did not run"; says 'did not run: jdk:java/net/Gone.java$' "listed, not run"
+
+# spec: PORT.md ruling R54 -- the release gate's list and a host's overlay are read together
+fixture; sed -n 1p "$t/fx/known.txt" > "$t/known"; sed -n '2,$p' "$t/fx/known.txt" > "$t/overlay"; extra="$t/overlay"
+passes "the list split across two files"; says '^PASS: jtreg: 7 tests, 3 failing, exactly the ones' "two files"
+{ echo 'jdk:java/net/Gone.java  # canned: deleted upstream'; } >> "$t/overlay"
+fails "a listed test in the second file that did not run"; says "did not run: jdk:java/net/Gone.java$" "two files, not run"
+sed -n '2,$p' "$t/fx/known.txt" > "$t/overlay"; echo 'jdk:javax/net/ssl/SSLEngine/Basics.java  # canned: used to fail here' >> "$t/overlay"
+passes "a test the second file lists that now passes"; says '^stale: jdk:javax/net/ssl/SSLEngine/Basics.java$' "two files, stale"
+sed -n '2,$p' "$t/fx/known.txt" > "$t/overlay"; sed -n 1p "$t/fx/known.txt" >> "$t/overlay"
+fails "a test listed in both files"; says "lists hotspot:runtime/Thread/ThreadCountLimit.java#id0, which .*known also lists" "duplicate across files"
+printf 'not a line\n' > "$t/overlay"
+fails "a malformed second file"; says "overlay: line 1 is not" "malformed second file"
+extra="$t/overlay $t/missing-file"; sed -n '2,$p' "$t/fx/known.txt" > "$t/overlay"
+fails "a second file that cannot be read"; says "cannot read $t/missing-file" "unreadable second file"
+extra=""
 
 cp "$t/fx/known.txt" "$t/known"
 rm -f "$t/fake/args."*; roots=jdk; passes "JTREG_ROOTS=jdk with a hotspot listing"
