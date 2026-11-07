@@ -74,6 +74,9 @@ export AUTOCONF
 #       upstream's list; GenerateCacerts makes one entry per file, aliased "<file name> [jdk]".
 cacerts="$(jdk_ca_certs)" || die "jdk_ca_certs failed"
 target="$(jdk_target_args)"
+# spec: PORT.md ruling R57 -- on Mac OS X 10.9 configure's CODESIGN is jdk_codesign_shim's; the cross
+#       build passes none and keeps the codesign configure finds
+codesign="$(jdk_codesign_shim "$wrap")" || die "jdk_codesign_shim failed"
 # spec: PORT.md rulings R28 and R55 -- the image ships no default CDS archive and the pkg's postinstall
 #       writes it (R28); a cross build cannot make one and a native one would, so --disable-cds-archive
 #       keeps the two images alike (R55).
@@ -98,7 +101,7 @@ rm -rf "$out"; mkdir -p "$out"
   --with-vendor-url="$repo_url" \
   --with-vendor-bug-url="$repo_url/issues" \
   --with-vendor-vm-bug-url="$repo_url/issues" \
-  BUILD_CC=/usr/bin/clang BUILD_CXX=/usr/bin/clang++ ${pandoc:+"PANDOC=$pandoc"}) || die "configure failed (see $out/config.log)"
+  BUILD_CC=/usr/bin/clang BUILD_CXX=/usr/bin/clang++ ${pandoc:+"PANDOC=$pandoc"} ${codesign:+"CODESIGN=$codesign"}) || die "configure failed (see $out/config.log)"
 
 # platform: libawt_lwawt, libosxui, libosxapp and libsplashscreen use AppKit declarations from 10.10-11.0
 #           that the 10.9 SDK lacks, so they alone compile and link against the family's pinned 11.3 SDK

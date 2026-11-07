@@ -296,3 +296,14 @@ that every cited one is defined here). Each says what was decided, why, and what
   it twice changes their bytes. The cross build leaves the variable unset, so its build tools, arm64
   host tools built with `/usr/bin/clang++`, are unchanged. Cost: one more patch, to OpenJDK's
   `make/common/NativeCompilation.gmk`.
+- **R57** A native 10.9 build signs every Mach-O as the cross build does (configure's debug mode:
+  `codesign -f -s - --entitlements …`), through `jdk_codesign_shim`, which `build/build-jdk.sh` hands
+  configure as `CODESIGN` on 10.9 only. Before signing, OpenJDK's `make/common/native/Link.gmk` runs
+  `codesign --remove-signature` on each binary only to avoid a warning, and 10.9's codesign refuses
+  that on every thin x86_64 binary ("unsupported type or version of signature"); the shim takes that
+  one call as a no-op, and `-f` replaces whatever signature the linker left. Not
+  `--with-macosx-codesign=disabled`: the native image would then carry no signature or entitlements
+  where the cross image does. The cross build passes no `CODESIGN`. A signature is Mach-O bytes, which
+  `build/compare-builds.sh` already lets differ (R55). Cost: 10.9's codesign writes an older
+  CodeDirectory (v=20100) than the runner's (v=20400). Exit: OpenJDK drops the removal step, or the
+  family gains a codesign that 10.9 builds use.

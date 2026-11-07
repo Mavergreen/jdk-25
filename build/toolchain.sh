@@ -19,6 +19,9 @@
 #          Recaulk, clang22's libc++.a hidden, libc++abi (ruling R21), and what Recaulk needs.
 #          jdk_build_tool_ldflags prints, on Mac OS X 10.9 only, jdk_link_flags, which build/build-jdk.sh
 #          gives the native build tools' links through patches/0019 (ruling R56); elsewhere nothing.
+#          jdk_codesign_shim DIR, on Mac OS X 10.9 only, writes DIR/codesign, which takes
+#          "--remove-signature FILE" as a no-op and passes every other call to /usr/bin/codesign, and
+#          prints its path for configure's CODESIGN (ruling R57); elsewhere it prints and writes nothing.
 #          jdk_target_args prints configure's --openjdk-target for the cross build, and nothing on Mac
 #          OS X 10.9, which builds natively: there build, host and target are all x86_64 Darwin.
 #          jdk_compat_guard MACHO... runs shipyard's compat guard on a JDK image's Mach-O, with the
@@ -174,6 +177,18 @@ jdk_build_tool_ldflags() {
   # spec: PORT.md ruling R56 -- a native build links its C++ build tools (hotspot's adlc) with CXX but
   #       none of --with-extra-ldflags; patches/0019 adds MAVERGREEN_BUILD_TOOL_LDFLAGS to their links
   jdk_link_flags
+}
+
+jdk_codesign_shim() {
+  jdk_host_is_109 || return 0
+  # spec: PORT.md ruling R57 -- OpenJDK runs "codesign --remove-signature FILE" before
+  #       "codesign -f -s ... FILE" on every Mach-O it links, and 10.9's codesign refuses the first on
+  #       every binary ("unsupported type or version of signature"); -f replaces a signature anyway
+  mkdir -p "$1" && printf '%s\n' '#!/bin/sh' \
+    'if [ "$#" = 2 ] && [ "$1" = --remove-signature ]; then exit 0; fi' \
+    'exec /usr/bin/codesign "$@"' > "$1/codesign" && chmod +x "$1/codesign" \
+    || { echo "jdk_codesign_shim: could not write $1/codesign" >&2; return 1; }
+  printf '%s\n' "$1/codesign"
 }
 
 jdk_target_args() {

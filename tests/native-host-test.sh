@@ -17,6 +17,11 @@
 #   std::hash<std::string> and std::unordered_map user against the 10.9 SDK (never run): clean by the
 #   compat guard, no libc++.1.dylib load command. CXX alone, which is what adlc linked with, must fail on
 #   std::__1::__hash_memory.
+#   jdk_codesign_shim DIR writes DIR/codesign and prints its path on 10.9 (PORT.md ruling R57), and nothing
+#   elsewhere. The shim takes OpenJDK's "codesign --remove-signature FILE", which 10.9's codesign refuses,
+#   as a no-op that leaves FILE's bytes alone, and hands every other call to /usr/bin/codesign unchanged:
+#   here, "-f -s - --entitlements PLIST FILE" ad hoc signs an x86_64 dylib. That 10.9's own codesign
+#   accepts that call, entitlements included, only a 10.9 box can show.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -110,4 +115,24 @@ if ! onhost 'jdk_host_is_109'; then
   fi
   grep -q '__hash_memory' "$t/o" || fail "CXX alone failed to link for another reason than __hash_memory: $(head -5 "$t/o")"
 fi
+got="$(/bin/sh -c '. "$MAVERICKS_ROOT/build/toolchain.sh"; jdk_codesign_shim "$1"' x "$t/cs0")" || fail "jdk_codesign_shim failed: $got"
+if onhost 'jdk_host_is_109'; then
+  [ "$got" = "$t/cs0/codesign" ] || fail "jdk_codesign_shim on this 10.9 printed '$got'"
+  cs="$got"
+else
+  [ -z "$got" ] && [ ! -e "$t/cs0" ] || fail "jdk_codesign_shim off 10.9 printed '$got' or wrote $t/cs0: the cross build's codesign must not change"
+  cs="$(PATH="$t/bin:$PATH" /bin/sh -c '. "$MAVERICKS_ROOT/build/toolchain.sh"; jdk_codesign_shim "$1"' x "$t/cs")" \
+    || fail "jdk_codesign_shim failed under the 10.9 uname"
+  [ "$cs" = "$t/cs/codesign" ] || fail "jdk_codesign_shim under the 10.9 uname printed '$cs'"
+fi
+[ -x "$cs" ] || fail "jdk_codesign_shim wrote no executable $cs"
+cp "$t/hash" "$t/signed"; /usr/bin/codesign -f -s - "$t/signed" > /dev/null 2>&1 || fail "fixture: could not ad hoc sign $t/signed"
+cp "$t/signed" "$t/signed.before"
+"$cs" --remove-signature "$t/signed" > "$t/o" 2>&1 || fail "the codesign shim's --remove-signature failed: $(cat "$t/o")"
+cmp -s "$t/signed" "$t/signed.before" || fail "the codesign shim's --remove-signature changed the file"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n<key>com.apple.security.get-task-allow</key>\n<true/>\n</dict>\n</plist>\n' > "$t/ent.plist"
+cp "$t/hash" "$t/tosign"
+"$cs" -f -s - --entitlements "$t/ent.plist" "$t/tosign" > "$t/o" 2>&1 || fail "the codesign shim did not pass -f -s - --entitlements through: $(cat "$t/o")"
+/usr/bin/codesign -d -v "$t/tosign" > "$t/o" 2>&1 || fail "the codesign shim's signing left no signature: $(cat "$t/o")"
+grep -q 'Signature=adhoc' "$t/o" || fail "the codesign shim's signing is not ad hoc: $(cat "$t/o")"
 echo "PASS: native-host"
