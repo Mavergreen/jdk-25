@@ -321,3 +321,11 @@ that every cited one is defined here). Each says what was decided, why, and what
   has no code to sign, and release 1's image holds none. Not a section added to every native link:
   that would change every native Mach-O, where this changes only the files 10.9 cannot sign. Exit:
   the same, or lld keeps an empty `__text`.
+- **R58** `build/build-jdk.sh` builds with `TZ=UTC`. `lib/classlist` lists the classes
+  `HelloClasslist` loads, and it formats a date in the default time zone; a zone with transitions
+  also loads `sun.util.calendar.ZoneInfoFile$Checksum`, so a build in New York listed one class more
+  than CI's, whose runners are in UTC. Upstream already pins the locale for the same reason. Not
+  excused in `build/compare-builds.sh`: the classlist is what the CDS archive the postinstall writes
+  (R28) starts from, so it should not depend on where the build ran. CI's runners already run in UTC
+  (release 1's classlist has no such line), so its builds are unchanged.
+  `tests/build-jdk-test.sh` refuses an image whose classlist lists that class.

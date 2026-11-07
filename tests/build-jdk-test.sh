@@ -27,6 +27,10 @@ u="$(sh "$MAVERICKS_ROOT/build/derive-upstream-version.sh" --print)"
 grep -qx "JAVA_VERSION=\"$u\"" "$img/release" \
   || fail "release says $(grep '^JAVA_VERSION=' "$img/release"), not JAVA_VERSION=\"$u\" from UPSTREAM_VERSION"
 
+# spec: PORT.md ruling R58 -- build/build-jdk.sh generates the classlist in UTC
+if grep -q 'ZoneInfoFile\$Checksum' "$img/lib/classlist"; then
+  fail "lib/classlist lists sun/util/calendar/ZoneInfoFile\$Checksum: it was generated outside UTC (ruling R58)"
+fi
 T="$(mktemp -d "${TMPDIR:-/tmp}/build-jdk-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
 if find "$img" -name '*.dSYM' | grep -q .; then

@@ -80,6 +80,10 @@ codesign="$(jdk_codesign_shim "$wrap")" || die "jdk_codesign_shim failed"
 # spec: PORT.md rulings R28 and R55 -- the image ships no default CDS archive and the pkg's postinstall
 #       writes it (R28); a cross build cannot make one and a native one would, so --disable-cds-archive
 #       keeps the two images alike (R55).
+# spec: PORT.md ruling R58 -- lib/classlist lists the classes HelloClasslist loads, and formatting a date
+#       in a time zone with transitions loads sun.util.calendar.ZoneInfoFile$Checksum too; UTC, as on CI's
+#       runners, makes the classlist the same wherever the build runs
+TZ=UTC; export TZ
 out="$root/build"
 rm -rf "$out"; mkdir -p "$out"
 (cd "$out" && bash "$src/configure" \

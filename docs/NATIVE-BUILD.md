@@ -15,7 +15,7 @@ it changes three things:
   also the target.
 
 Everything else is the same: the source, the patches, the pinned 10.9 SDK, Recaulk, ca-certs, the flags,
-and `--disable-cds-archive` (PORT.md ruling R55).
+`--disable-cds-archive` (PORT.md ruling R55), and `TZ=UTC` (R58).
 
 ## Prerequisites
 
