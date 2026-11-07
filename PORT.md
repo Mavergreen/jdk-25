@@ -269,3 +269,12 @@ that every cited one is defined here). Each says what was decided, why, and what
   `tests/jtreg.sh` reads after the main list (`tests/jtreg.sh JDK tests/known-failures/x86_64-10.9.txt
   tests/known-failures/x86_64-10.9-multihomed-host.txt`), so the release gate is not blind to them.
   Cost: a native gate on that box must pass the overlay too.
+- **R55** A native 10.9 build is checked against the cross build by `build/compare-builds.sh`, which
+  excuses, and names, only what differs by design: the `host` each was built on; the `bootjdk` (10.9
+  boots with the installed jdk25, since the pinned Temurin build is aarch64; the cross build with that
+  Temurin); and, when one side records `pandoc=none`, the man pages it could not make (R19), in the
+  image's `man/` and each jmod's `man/`. Both builds configure with `--disable-cds-archive`: a cross
+  build cannot make the default CDS archive and a native one would, and the pkg's postinstall writes it
+  on the installed JDK either way. Mach-O bytes may differ, and so may what records them (a jmod's
+  module hashes, `lib/modules`); the script reports each such file and fails only on the build inputs,
+  the compat guard and the file lists. Cost: the native build's man pages go unchecked.

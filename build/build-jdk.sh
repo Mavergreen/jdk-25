@@ -1,12 +1,14 @@
 #!/bin/sh
-# platform: macOS-only -- cross-builds the x86_64 Mac OS X 10.9 JDK on an arm64 Mac (jdk_boot_jdk, jdk_toolchain)
+# platform: macOS-only -- builds the x86_64 Mac OS X 10.9 JDK: cross on an arm64 Mac, natively on Mac OS X 10.9 (jdk_boot_jdk, jdk_toolchain, jdk_target_args)
 #   usage: sh build/build-jdk.sh
 #          Fetches the pinned source into $(jdk_build_root)/src, applies patches/ with shipyard's
 #          apply_patches.sh, configures and builds `make images` in $(jdk_build_root)/build, and
 #          replaces $(jdk_build_root)/image with the JDK home and $(jdk_build_root)/test-natives with
 #          the jtreg test natives (hotspot/jtreg/native and jdk/jtreg/native: tests/jtreg.sh's
 #          JTREG_NATIVEPATH).
-#          Writes $(jdk_build_root)/build-info.txt.
+#          Writes $(jdk_build_root)/build-info.txt, whose host says where it was built.
+#          On Mac OS X 10.9 the build is native (docs/NATIVE-BUILD.md): the installed jdk25 boots it,
+#          the installed clang22 compiles it, and configure gets no --openjdk-target.
 #          JDK_MAKE_JOBS sets make's job count (default: hw.ncpu).
 set -eu
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -72,10 +74,14 @@ export AUTOCONF
 # spec: ruling R34 -- lib/security/cacerts holds the family ca-certs release's trusted roots, not
 #       upstream's list; GenerateCacerts makes one entry per file, aliased "<file name> [jdk]".
 cacerts="$(jdk_ca_certs)" || die "jdk_ca_certs failed"
+target="$(jdk_target_args)"
+# spec: PORT.md ruling R55 -- configure cannot make the default CDS archive in a cross build and would in
+#       a native one, so --disable-cds-archive keeps the two images alike; the pkg's postinstall writes
+#       the archive on the installed JDK either way.
 out="$root/build"
 rm -rf "$out"; mkdir -p "$out"
 (cd "$out" && bash "$src/configure" \
-  --openjdk-target=x86_64-apple-darwin \
+  ${target:+"$target"} \
   --with-boot-jdk="$boot" \
   --with-sysroot="$sdk" \
   --with-toolchain-type=clang \
@@ -83,6 +89,7 @@ rm -rf "$out"; mkdir -p "$out"
   --with-extra-cxxflags="$vflags $rflags" \
   --with-extra-ldflags="$vflags -fuse-ld=lld $lflags" \
   --with-native-debug-symbols=none \
+  --disable-cds-archive \
   --with-cacerts-src="$cacerts" \
   --disable-warnings-as-errors \
   --with-version-pre= \
@@ -134,7 +141,8 @@ sdk_pin() { set -- $(shipyard_sdk_pin "$1"); printf '%s@sha256:%s\n' "$4" "${MAV
 sh "$SHIPYARD_SCRIPTS/build-info.sh" "$root/build-info.txt" \
   "upstream=$(sh "$MAVERICKS_ROOT/build/derive-upstream-version.sh" --print)" \
   "jdk-ref=$REF@$DIGEST" \
-  "bootjdk=$(sed -n 's/^TAG=//p' "$MAVERICKS_ROOT/components/bootjdk/version")" \
+  "host=$(uname -m)-macos$(sw_vers -productVersion)" \
+  "bootjdk=$(jdk_boot_jdk_id "$boot")" \
   "clang22=$(jdk_pin clang22)" \
   "recaulk=$(jdk_pin recaulk)" \
   "sdk=$(sdk_pin x86_64)" \

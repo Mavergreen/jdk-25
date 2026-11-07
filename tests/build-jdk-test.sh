@@ -66,12 +66,8 @@ if otool -L "$img/lib/server/libjvm.dylib" | grep -Eq '/(Metal|MetalKit)\.framew
   fail "lib/server/libjvm.dylib links Metal, which arrived in 10.11"
 fi
 
-# platform: libawt_lwawt names controlAccentColor (10.14) only inside patches/0016's
-#           @available(macOS 10.14, *) branch, so 10.9 never sends it.
 # shellcheck disable=SC2046
-MAVERICKS_ALLOW_SELECTORS=controlAccentColor \
-MAVERICKS_ALLOW_ARCHS=x86_64 MAVERICKS_DEVIATIONS_ROOT="$MAVERICKS_ROOT" \
-  sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" $(cat "$T/macho") > "$T/guard.out" 2>&1 \
+jdk_compat_guard $(cat "$T/macho") > "$T/guard.out" 2>&1 \
   || { cat "$T/guard.out" >&2; fail "the compat guard refuses a Mach-O in the image"; }
 echo "ok static: $(wc -l < "$T/macho" | tr -d ' ') Mach-O pass the compat guard"
 

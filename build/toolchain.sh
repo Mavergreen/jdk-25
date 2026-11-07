@@ -11,6 +11,12 @@
 #          /usr/local/mavergreen/jdk25, refused unless its bin/java runs; elsewhere the Temurin aarch64
 #          build components/bootjdk/version pins (TAG, and the SHA256 of its tar.gz), fetched and verified
 #          by shipyard's mavericks_fetch.sh into a cache under the build root, and its Contents/Home.
+#          jdk_boot_jdk_id HOME prints what build-info.txt records as that boot JDK: on Mac OS X 10.9
+#          jdk25-<HOME/release's JAVA_RUNTIME_VERSION>, elsewhere components/bootjdk/version's TAG.
+#          jdk_target_args prints configure's --openjdk-target for the cross build, and nothing on Mac
+#          OS X 10.9, which builds natively: there build, host and target are all x86_64 Darwin.
+#          jdk_compat_guard MACHO... runs shipyard's compat guard on a JDK image's Mach-O, with the
+#          deviations INGREDIENTS.md declares.
 #          jdk_pandoc prints the pandoc components/pandoc/version pins (VERSION, and the SHA256 of its
 #          macOS arm64 zip), which configure needs for man pages, fetched with shipyard_fetch_verified
 #          into the build root, never installed. On Mac OS X 10.9 it prints nothing and says so: pandoc
@@ -127,6 +133,26 @@ jdk_boot_jdk() {
     [ -x "$_bj_home/bin/java" ] || { echo "jdk_boot_jdk: $_bj_asset has no $_bj_tag/Contents/Home/bin/java" >&2; return 1; }
   fi
   printf '%s\n' "$_bj_home"
+}
+
+jdk_boot_jdk_id() {
+  if jdk_host_is_109; then
+    _bi="$(sed -n 's/^JAVA_RUNTIME_VERSION="\(.*\)"$/\1/p' "$1/release" 2>/dev/null)"
+    [ -n "$_bi" ] || { echo "jdk_boot_jdk_id: $1/release has no JAVA_RUNTIME_VERSION" >&2; return 1; }
+    printf 'jdk25-%s\n' "$_bi"; return 0
+  fi
+  sed -n 's/^TAG=//p' "$MAVERICKS_ROOT/components/bootjdk/version" | tr -d '[:space:]'; echo
+}
+
+jdk_target_args() {
+  jdk_host_is_109 || echo --openjdk-target=x86_64-apple-darwin
+}
+
+jdk_compat_guard() {
+  # platform: libawt_lwawt names controlAccentColor (10.14) only inside patches/0016's
+  #           @available(macOS 10.14, *) branch, so 10.9 never sends it.
+  MAVERICKS_ALLOW_SELECTORS=controlAccentColor MAVERICKS_ALLOW_ARCHS=x86_64 \
+    MAVERICKS_DEVIATIONS_ROOT="$MAVERICKS_ROOT" sh "$SHIPYARD_SCRIPTS/assert_binary_compatible.sh" "$@"
 }
 
 jdk_pandoc() {
