@@ -13,9 +13,9 @@ set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
 fail() { echo "FAIL $*"; exit 1; }
+case "$(uname -s)" in Darwin) ;; *) echo "SKIP jtreg-deps: macOS only"; exit 77 ;; esac
 . "$MAVERICKS_ROOT/build/toolchain.sh"
 boot="$(jdk_boot_jdk)" || fail "jdk_boot_jdk failed"
-case "$(uname -s)" in Darwin) ;; *) echo "SKIP jtreg-deps: macOS only"; exit 77 ;; esac
 mkdir -p "$(jdk_build_root)"
 t="$(mktemp -d "$(jdk_build_root)/jtreg-deps-test.XXXXXX")"
 trap 'rm -rf "$t"' EXIT

@@ -76,6 +76,8 @@ jobs:
         run: sh scripts/resolve-ga.sh --check
       - name: The jtreg pin is the jtreg the pinned source's own CI runs (vm-test's gate refuses any other)
         run: sh scripts/check-jtreg-pin.sh
+      - name: components/jtreg/deps pins that jtreg's build dependencies (else the jtreg build fails, after the JDK's)
+        run: sh scripts/pin-jtreg-deps.sh --check
       - name: The pinned tarball is the pinned commit's tree, file for file, and its SHA-256 is TARBALL_SHA256
         run: sh scripts/pin-source-tarballs.sh --check
 
@@ -130,7 +132,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/mm-build/jdk-25/jtreg-deps
           key: jtreg-deps-${{ hashFiles('components/jtreg/deps') }}
-      - name: Build the pinned jtreg, which vm-test's guest runs (10.9's curl cannot fetch its dependencies)
+      - name: Build the pinned jtreg, which vm-test's guest runs, so the guest needs no boot JDK of its own to build it
         run: |
           set -eu
           # platform: a sourced script's $0 is the step's shell, so toolchain.sh cannot find the repo from it

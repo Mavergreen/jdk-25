@@ -156,7 +156,7 @@ _jdk_jtreg_pins() {
   _jt_sha="$(sed -n 's/^SHA256=//p' "$MAVERICKS_ROOT/components/jtreg/version" | tr -d '[:space:]')"
   [ -n "$_jt_tag" ] && [ -n "$_jt_sha" ] || { echo "jdk_jtreg: components/jtreg/version needs TAG and SHA256" >&2; return 1; }
   _jt_deps="$MAVERICKS_ROOT/components/jtreg/deps"
-  _jt_dtag="$(sed -n 's/^TAG=//p' "$_jt_deps" 2>/dev/null)"
+  _jt_dtag="$(sed -n 's/^TAG=//p' "$_jt_deps" 2>/dev/null | tr -d ' \t\r')"
   [ "$_jt_dtag" = "$_jt_tag" ] || {
     echo "jdk_jtreg: components/jtreg/deps is for ${_jt_dtag:-no jtreg}, not $_jt_tag; run sh scripts/pin-jtreg-deps.sh" >&2; return 1; }
   _jt_ver="${_jt_tag#jtreg-}"
@@ -179,11 +179,15 @@ jdk_jtreg_fetch() {
     case "$_jt_p" in TAG=*|'') continue ;; esac
     _jt_ok=no; _jt_left="$_jt_us"
     # platform: every URL but the last gets 2 tries, so a host that is down (archive.apache.org, for
-    #           GitHub's runners) costs seconds, not shipyard_curl's full backoff, before its mirror
+    #           GitHub's runners) costs seconds, not shipyard_curl's full backoff, before its mirror; set in
+    #           a subshell, since /bin/sh keeps an assignment prefixed to a function call, exported
     for _jt_u in $_jt_us; do
       _jt_left="${_jt_left#"$_jt_u"}"; _jt_left="${_jt_left# }"
-      if [ -n "$_jt_left" ]; then _jt_tries=2; else _jt_tries="${SHIPYARD_FETCH_TRIES:-5}"; fi
-      if SHIPYARD_FETCH_TRIES="$_jt_tries" shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s" >&2; then _jt_ok=yes; break; fi
+      if [ -n "$_jt_left" ]; then
+        if (SHIPYARD_FETCH_TRIES=2; export SHIPYARD_FETCH_TRIES
+            shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s") >&2; then _jt_ok=yes; break; fi
+      elif shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s" >&2; then _jt_ok=yes; break
+      fi
     done
     [ "$_jt_ok" = yes ] || { echo "jdk_jtreg: could not fetch $_jt_p from any of: $_jt_us" >&2; return 1; }
   done < "$_jt_deps"
