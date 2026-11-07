@@ -65,8 +65,8 @@ repo_url=https://github.com/Mavergreen/jdk-25
 # platform: configure makes man pages only with pandoc, which it reads as a VAR=value argument; jdk_pandoc
 #           prints nothing on Mac OS X 10.9, where no pinned pandoc runs (ruling R19).
 pandoc="$(jdk_pandoc)" || die "jdk_pandoc failed"
-# platform: the jdk source's configure generates itself with the autoconf it finds as AUTOCONF, else on
-#           PATH; a host's own (pkgsrc's /opt/pkg/bin) would decide the generated configure (PORT.md ruling R53).
+# platform: the jdk source's configure generates itself with the autoconf it finds as AUTOCONF, else the
+#           first autoconf on PATH.
 AUTOCONF="$(jdk_autoconf)" || die "jdk_autoconf failed"
 export AUTOCONF
 # spec: ruling R34 -- lib/security/cacerts holds the family ca-certs release's trusted roots, not

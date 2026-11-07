@@ -195,24 +195,26 @@ jdk_autoconf() {
   if [ ! -f "$_ac_pre/.complete" ]; then
     # shellcheck disable=SC1091
     . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
-    mkdir -p "$_ac_root/src"
+    _m4_src="$_ac_root/src-$_m4_sha/m4-$_m4_v"
+    _ac_src="$_ac_root/src-$_ac_sha/autoconf-$_ac_v"
     for _ac_p in "m4 $_m4_v $_m4_sha" "autoconf $_ac_v $_ac_sha"; do
       set -- $_ac_p
-      [ -d "$_ac_root/src/$1-$2" ] && continue
-      shipyard_fetch_pinned "https://ftp.gnu.org/gnu/$1/$1-$2.tar.gz" "$3" "$_ac_root/src" "$1-$2.tar.gz" >&2 \
+      [ -d "$_ac_root/src-$3/$1-$2" ] && continue
+      mkdir -p "$_ac_root/src-$3"
+      shipyard_fetch_pinned "https://ftp.gnu.org/gnu/$1/$1-$2.tar.gz" "$3" "$_ac_root/src-$3" "$1-$2.tar.gz" >&2 \
         || { echo "jdk_autoconf: could not fetch $1-$2.tar.gz" >&2; return 1; }
     done
     rm -rf "$_ac_pre" "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
     mkdir -p "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
     _ac_jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-    # platform: jdk_toolchain exports CC, SDKROOT and MACOSX_DEPLOYMENT_TARGET for the x86_64 10.9 target;
-    #           these tools run on the build host, so each build starts from none of them.
+    # platform: jdk_toolchain exports CC, SDKROOT and MACOSX_DEPLOYMENT_TARGET for the x86_64 10.9 target,
+    #           and configure and make read them from the environment.
     ( unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET M4 AUTOCONF AUTOM4TE
       cd "$_ac_root/build-m4-$_m4_v" \
-        && "$_ac_root/src/m4-$_m4_v/configure" --prefix="$_ac_pre" --disable-nls CC=/usr/bin/clang \
+        && "$_m4_src/configure" --prefix="$_ac_pre" --disable-nls CC=/usr/bin/clang \
         && make -j"$_ac_jobs" && make install \
         && cd "$_ac_root/build-autoconf-$_ac_v" \
-        && "$_ac_root/src/autoconf-$_ac_v/configure" --prefix="$_ac_pre" M4="$_ac_pre/bin/m4" PERL=/usr/bin/perl \
+        && "$_ac_src/configure" --prefix="$_ac_pre" M4="$_ac_pre/bin/m4" PERL=/usr/bin/perl \
         && make && make install ) >&2 || { echo "jdk_autoconf: building GNU m4 $_m4_v and autoconf $_ac_v failed" >&2; return 1; }
     rm -rf "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
     [ -x "$_ac_pre/bin/autoconf" ] && [ -x "$_ac_pre/bin/m4" ] || { echo "jdk_autoconf: no bin/autoconf or bin/m4 in $_ac_pre" >&2; return 1; }
