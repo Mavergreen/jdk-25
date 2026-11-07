@@ -1,0 +1,29 @@
+What: java_props_macosx.c declares NSOperatingSystemVersion and -[NSProcessInfo
+  operatingSystemVersion] itself when compiled against an SDK older than 10.10.
+Why on 10.9: patches/0004 guards that call with respondsToSelector:, but the 10.9 SDK does not
+  declare the method or its return type, so the guarded call does not compile against it.
+Provenance: ours; the companion of patches/0004 (Hiker159's), which builds against a newer SDK.
+Exit: with patches/0004: a Recaulk back-fill of -[NSProcessInfo operatingSystemVersion] and its
+  declaration, then delete both.
+
+--- a/src/java.base/macosx/native/libjava/java_props_macosx.c
++++ b/src/java.base/macosx/native/libjava/java_props_macosx.c
+@@ -33,6 +33,18 @@
+ #include <SystemConfiguration/SystemConfiguration.h>
+ #include <Foundation/Foundation.h>
+ 
++#if MAC_OS_X_VERSION_MAX_ALLOWED < 101000
++/* Mavergreen: the 10.10 SDK declares these; on 10.9 the call is guarded by respondsToSelector: */
++typedef struct {
++    NSInteger majorVersion;
++    NSInteger minorVersion;
++    NSInteger patchVersion;
++} NSOperatingSystemVersion;
++@interface NSProcessInfo (MavergreenOperatingSystemVersion)
++- (NSOperatingSystemVersion) operatingSystemVersion;
++@end
++#endif
++
+ #include "java_props_macosx.h"
+ 
+ char *getPosixLocale(int cat) {

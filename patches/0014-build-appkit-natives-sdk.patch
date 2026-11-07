@@ -1,0 +1,82 @@
+What: when MAVERGREEN_APPKIT_SDK is set, libosxapp, libawt_lwawt, libosxui and libsplashscreen
+  compile and link against that SDK instead of SYSROOT, and drop the words of the global CFLAGS
+  named in MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT. Unset, nothing changes.
+Why on 10.9: those four use AppKit declarations from 10.10-11.0 (NSAccessibility protocols,
+  NSEventType*/NSWindowStyleMask* names, lightweight generics, CAMetalLayer) that the 10.9 SDK
+  lacks, so build/build-jdk.sh builds them against the pinned 11.3 SDK at deployment target 10.9
+  (ruling R16) and filters out Recaulk's -isystem, whose 10.9 back-fill headers redeclare what the
+  11.3 SDK has. INGREDIENTS.md declares each as an sdk-pin deviation; the compat guard still checks
+  their imports and selectors against 10.9.
+Provenance: ours.
+Exit: the family SDK declaration facility (Recaulk recipes + shipyard VFS materializer,
+  mavergreen-iterm2 design) widened to the JDK's AppKit use; then delete this patch and the four
+  INGREDIENTS.md lines.
+
+--- a/make/modules/java.desktop/Lib.gmk
++++ b/make/modules/java.desktop/Lib.gmk
+@@ -31,6 +31,17 @@ include Execute.gmk
+ # Prepare the find cache.
+ $(call FillFindCache, $(wildcard $(TOPDIR)/src/java.desktop/*/native))
+ 
++################################################################################
++# Mavergreen: when MAVERGREEN_APPKIT_SDK is set, the macOS AppKit natives
++# (libosxapp, libawt_lwawt, libosxui, libsplashscreen) compile and link against
++# it instead of SYSROOT, and MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT names words of
++# the global CFLAGS they drop. Unset, both change nothing.
++
++ifneq ($(MAVERGREEN_APPKIT_SDK), )
++  APPKIT_SYSROOT_CFLAGS := $(subst $(SYSROOT),$(MAVERGREEN_APPKIT_SDK),$(SYSROOT_CFLAGS))
++  APPKIT_SYSROOT_LDFLAGS := $(subst $(SYSROOT),$(MAVERGREEN_APPKIT_SDK),$(SYSROOT_LDFLAGS))
++endif
++
+ ################################################################################
+ # Create the AWT/2D libraries
+ 
+@@ -89,6 +100,10 @@ ifeq ($(call isTargetOs, macosx), true)
+ 
+   $(eval $(call SetupJdkLibrary, BUILD_LIBOSXAPP, \
+       NAME := osxapp, \
++      SYSROOT_CFLAGS := $(APPKIT_SYSROOT_CFLAGS), \
++      SYSROOT_LDFLAGS := $(APPKIT_SYSROOT_LDFLAGS), \
++      CFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
++      CXXFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
+       OPTIMIZATION := LOW, \
+       DISABLED_WARNINGS_clang_NSApplicationAWT.m := deprecated-declarations \
+           format-nonliteral, \
+--- a/make/modules/java.desktop/lib/AwtLibraries.gmk
++++ b/make/modules/java.desktop/lib/AwtLibraries.gmk
+@@ -347,6 +347,10 @@ ifeq ($(call isTargetOs, macosx), true)
+ 
+   $(eval $(call SetupJdkLibrary, BUILD_LIBAWT_LWAWT, \
+       NAME := awt_lwawt, \
++      SYSROOT_CFLAGS := $(APPKIT_SYSROOT_CFLAGS), \
++      SYSROOT_LDFLAGS := $(APPKIT_SYSROOT_LDFLAGS), \
++      CFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
++      CXXFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
+       EXTRA_SRC := $(LIBAWT_LWAWT_EXTRA_SRC), \
+       EXCLUDE_FILES := $(LIBAWT_LWAWT_EXCLUDE_FILES), \
+       EXCLUDES := $(LIBAWT_LWAWT_EXCLUDES), \
+--- a/make/modules/java.desktop/lib/ClientLibraries.gmk
++++ b/make/modules/java.desktop/lib/ClientLibraries.gmk
+@@ -221,6 +221,10 @@ ifeq ($(ENABLE_HEADLESS_ONLY), false)
+ 
+   $(eval $(call SetupJdkLibrary, BUILD_LIBSPLASHSCREEN, \
+       NAME := splashscreen, \
++      SYSROOT_CFLAGS := $(APPKIT_SYSROOT_CFLAGS), \
++      SYSROOT_LDFLAGS := $(APPKIT_SYSROOT_LDFLAGS), \
++      CFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
++      CXXFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
+       EXTRA_SRC := $(LIBSPLASHSCREEN_EXTRA_SRC), \
+       EXCLUDE_SRC_PATTERNS := $(LIBSPLASHSCREEN_EXCLUDE_SRC_PATTERNS), \
+       EXCLUDE_FILES := imageioJPEG.c jpegdecoder.c pngtest.c, \
+@@ -428,6 +432,10 @@ ifeq ($(call isTargetOs, macosx), true)
+ 
+   $(eval $(call SetupJdkLibrary, BUILD_LIBOSXUI, \
+       NAME := osxui, \
++      SYSROOT_CFLAGS := $(APPKIT_SYSROOT_CFLAGS), \
++      SYSROOT_LDFLAGS := $(APPKIT_SYSROOT_LDFLAGS), \
++      CFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
++      CXXFLAGS_FILTER_OUT := $(MAVERGREEN_APPKIT_CFLAGS_FILTER_OUT), \
+       OPTIMIZATION := LOW, \
+       EXTRA_HEADER_DIRS := \
+           libawt_lwawt/awt, \

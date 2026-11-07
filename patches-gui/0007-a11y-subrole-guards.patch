@@ -1,0 +1,38 @@
+What: menu-bar items report NSAccessibilityMenuItemRole before 10.12, tab buttons
+  NSAccessibilityUnknownSubrole before 10.13.
+Why on 10.9: NSAccessibilityMenuBarItemRole arrived in 10.12, NSAccessibilityTabButtonSubrole
+  in 10.13.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/MenuAccessibility.m hunk 1/1,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/TabButtonAccessibility.m hunk 1/1,
+  unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/MenuAccessibility.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/MenuAccessibility.m
+@@ -39,7 +39,10 @@
+         if ([[[self parent] javaRole] isEqualToString:@"combobox"]) {
+             return NSAccessibilityPopUpButtonRole;
+         } else if ([[[self parent] javaRole] isEqualToString:@"menubar"]) {
+-            return NSAccessibilityMenuBarItemRole;
++            if (@available(macOS 10.12, *)) {
++                return NSAccessibilityMenuBarItemRole;
++            }
++            return NSAccessibilityMenuItemRole;
+         } else {
+             return NSAccessibilityMenuRole;
+         }
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/TabButtonAccessibility.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/TabButtonAccessibility.m
+@@ -84,7 +84,10 @@
+ 
+ - (NSAccessibilitySubrole)accessibilitySubrole
+ {
+-    return NSAccessibilityTabButtonSubrole;
++    if (@available(macOS 10.13, *)) {
++        return NSAccessibilityTabButtonSubrole;
++    }
++    return NSAccessibilityUnknownSubrole;
+ }
+ 
+ - (id)accessibilityValue

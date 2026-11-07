@@ -1,0 +1,37 @@
+What: on macOS, libnio advertises openat support (and so Files.newDirectoryStream returns a
+  SecureDirectoryStream) only when libSystem itself exports renameat, checked at run time with
+  dlopen("/usr/lib/libSystem.B.dylib", RTLD_NOLOAD) and dlsym. On 10.9 SecureDirectoryStream is
+  off; the same binary keeps it on 10.10 and later, where libSystem has renameat.
+Why on 10.9: 10.9 has no *at calls; the JDK gets them from Recaulk (macports-legacy-support
+  1.5.2). Its renameat, when the two directory descriptors differ and both names are relative,
+  turns each descriptor into a path with fcntl(F_GETPATH) and calls rename(path, path). That is
+  the call UnixSecureDirectoryStream.move makes (renameat(this.dfd, from, that.dfd, to)), so a
+  parent of either side swapped for a symlink between F_GETPATH and rename redirects the move
+  outside the directories the caller opened: the race SecureDirectoryStream exists to rule out.
+Provenance: ours. It replaces Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10,
+  patches/25/mavericks.patch, src/java.base/unix/native/libnio/fs/UnixNativeDispatcher.c hunk
+  3/6, which turned SecureDirectoryStream off by resolving openat/fstatat/fdopendir with dlsym;
+  with Recaulk linked those resolve, so that would not keep it off, and it was off on 10.10+ too.
+Exit: Recaulk gains an fd-relative renameat, then delete this patch.
+
+--- a/src/java.base/unix/native/libnio/fs/UnixNativeDispatcher.c
++++ b/src/java.base/unix/native/libnio/fs/UnixNativeDispatcher.c
+@@ -367,6 +367,18 @@
+         my_fstatat_func = (fstatat_func*)&fstatat_wrapper;
+ #endif
+ 
++#if defined(__APPLE__)
++    {
++        void* libsystem = dlopen("/usr/lib/libSystem.B.dylib", RTLD_LAZY | RTLD_NOLOAD);
++        if (libsystem == NULL || dlsym(libsystem, "renameat") == NULL) {
++            my_renameat_func = NULL;
++        }
++        if (libsystem != NULL) {
++            dlclose(libsystem);
++        }
++    }
++#endif
++
+     /* supports openat, etc. */
+ 
+     if (my_openat_func != NULL &&  my_fstatat_func != NULL &&

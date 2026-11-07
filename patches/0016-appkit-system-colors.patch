@@ -1,0 +1,35 @@
+What: CONTROL_HIGHLIGHT and the JTable cell highlight use the pre-Mojave system colours
+  (alternateSelectedControlColor, keyboardFocusIndicatorColor) before 10.14.
+Why on 10.9: selectedContentBackgroundColor and controlAccentColor arrived in 10.14.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/CSystemColors.m hunks 1-2/2, unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/CSystemColors.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/CSystemColors.m
+@@ -96,7 +96,11 @@
+     sColors[java_awt_SystemColor_TEXT_INACTIVE_TEXT] =        [NSColor disabledControlTextColor];
+     sColors[java_awt_SystemColor_CONTROL] =                    [NSColor controlColor];
+     sColors[java_awt_SystemColor_CONTROL_TEXT] =            [NSColor controlTextColor];
+-    sColors[java_awt_SystemColor_CONTROL_HIGHLIGHT] =        [NSColor selectedContentBackgroundColor];
++    if (@available(macOS 10.14, *)) {
++        sColors[java_awt_SystemColor_CONTROL_HIGHLIGHT] =        [NSColor selectedContentBackgroundColor];
++    } else {
++        sColors[java_awt_SystemColor_CONTROL_HIGHLIGHT] = [NSColor alternateSelectedControlColor];
++    }
+     sColors[java_awt_SystemColor_CONTROL_LT_HIGHLIGHT] =    [NSColor alternateSelectedControlTextColor];
+     sColors[java_awt_SystemColor_CONTROL_SHADOW] =            [NSColor controlShadowColor];
+     sColors[java_awt_SystemColor_CONTROL_DK_SHADOW] =        [NSColor controlDarkShadowColor];
+@@ -117,7 +121,11 @@
+     }
+ 
+     // added for JTable Focus Ring
+-    appleColors[sun_lwawt_macosx_LWCToolkit_CELL_HIGHLIGHT_COLOR] =               [NSColor controlAccentColor];
++    if (@available(macOS 10.14, *)) {
++        appleColors[sun_lwawt_macosx_LWCToolkit_CELL_HIGHLIGHT_COLOR] =               [NSColor controlAccentColor];
++    } else {
++        appleColors[sun_lwawt_macosx_LWCToolkit_CELL_HIGHLIGHT_COLOR] = [NSColor keyboardFocusIndicatorColor];
++    }
+     appleColors[sun_lwawt_macosx_LWCToolkit_KEYBOARD_FOCUS_COLOR] =                    [NSColor keyboardFocusIndicatorColor];
+     appleColors[sun_lwawt_macosx_LWCToolkit_INACTIVE_SELECTION_BACKGROUND_COLOR] =    [NSColor secondarySelectedControlColor];
+     appleColors[sun_lwawt_macosx_LWCToolkit_INACTIVE_SELECTION_FOREGROUND_COLOR] =    [NSColor controlDarkShadowColor];

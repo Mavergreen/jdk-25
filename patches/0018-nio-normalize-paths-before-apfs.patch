@@ -1,0 +1,35 @@
+What: on macOS before 10.13 (Darwin 17), sun.nio.fs normalizes paths (to NFD on the way to the
+  file system, back to NFC on the way to Java) by default, as JDK 19 and earlier did everywhere.
+  An explicit -Djdk.nio.path.useNormalizationFormD=<true|false> still decides, as upstream.
+Why on 10.9: there is no APFS before 10.13; HFS+ stores every name decomposed (NFD), so without
+  normalization a file created under an NFC name lists back as a different, NFD string and
+  Path.equals fails for any non-ASCII name (java/nio/file/Path/MacPathTest.java). Upstream
+  turned the default off in JDK 20 because APFS preserves names as written.
+Provenance: ours (ruling R27). The version test uses os.version (jdk.internal.util.OSVersion),
+  which patches/0004 keeps working on 10.9; macOS 10.13 is Darwin 17.
+Exit: none while 10.9 is supported; on 10.13 and later the default is upstream's.
+
+--- a/src/java.base/macosx/classes/sun/nio/fs/MacOSXFileSystem.java
++++ b/src/java.base/macosx/classes/sun/nio/fs/MacOSXFileSystem.java
+@@ -26,6 +26,7 @@
+ package sun.nio.fs;
+ 
+ import java.util.regex.Pattern;
++import jdk.internal.util.OSVersion;
+ 
+ import static sun.nio.fs.MacOSXNativeDispatcher.*;
+ 
+@@ -43,8 +44,12 @@
+     static {
+         final String name = PROPERTY_NORMALIZE_FILE_PATHS;
+         String value = System.getProperty(name);
++        // Mavergreen: before macOS 10.13 (Darwin 17) there is no APFS, and HFS+ stores names
++        // decomposed (NFD), so paths are normalized unless -Djdk.nio.path.useNormalizationFormD
++        // says otherwise.
+         NORMALIZE_FILE_PATHS = (value != null)
+-            && ("".equals(value) || Boolean.parseBoolean(value));
++            ? ("".equals(value) || Boolean.parseBoolean(value))
++            : OSVersion.current().compareTo(new OSVersion(10, 13)) < 0;
+     }
+ 
+     MacOSXFileSystem(UnixFileSystemProvider provider, String dir) {

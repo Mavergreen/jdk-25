@@ -1,0 +1,265 @@
+What: the kqueue Selector treats a read event that reports TCP urgent data (EV_OOBAND, no
+  EV_EOF) on a registered socket that has SO_OOBINLINE off and nothing to read (FIONREAD 0) as
+  no event: it discards the urgent byte (recv MSG_OOB; EINVAL means it already was), as
+  Socket.setOOBInline specifies urgent data is while the option is off, does not select the
+  key, and re-registers the socket's read filter with EV_CLEAR (EV_DELETE, then EV_ADD |
+  EV_CLEAR), so kqueue reports only new activity on it. The first real read event on such a
+  socket (normal data, EOF) re-registers the filter level-triggered before the key is
+  selected. When every polled event was ignored, select polls again for what remains of its
+  timeout instead of returning early. KQueue gains EV_OOBAND, EV_EOF and a native
+  discardUrgentData(fd).
+Why on 10.9: 10.9's kqueue keeps reporting such a socket readable (EVFILT_READ, EV_OOBAND,
+  data 0) for as long as it sits at the urgent mark with nothing to read, while read() returns
+  nothing (EAGAIN). Discarding the byte does not clear that state; only normal data arriving
+  does. Without this patch a peer that sends one urgent byte pegs a core in every select() on
+  that selector, platform or virtual thread (about 550,000 kevent returns a second in C). With
+  it, kevent blocks: in C 2 kevent returns and no CPU in a 1 s wait, then normal data is
+  reported at once; in Java select(1000) and an untimed select() use ~0 ms of CPU, and the
+  data, a second urgent byte, and EOF are all still reported (LegacySmoke's urgentData check
+  measures the thread's CPU across select(1000)). EV_CLEAR lasts only until that first real
+  event, so a partial read cannot strand data.
+  Not fixed here: 10.9's filter also never reports normal data queued before an urgent mark
+  (reproduced in C with kqueue and with poll), which this patch neither causes nor cures;
+  java/nio/channels/Selector/OutOfBand.java's later cases fail on it (known failure, R31).
+Provenance: ours (ruling R26; the version in e820caf only ignored the event, which hid the spin
+  inside select() rather than stopping it).
+Exit: none while 10.9 is supported; harmless where the kernel never reports such an event.
+
+--- a/src/java.base/macosx/classes/sun/nio/ch/KQueue.java
++++ b/src/java.base/macosx/classes/sun/nio/ch/KQueue.java
+@@ -64,6 +64,8 @@
+     static final int EV_DELETE  = 0x0002;
+     static final int EV_ONESHOT = 0x0010;
+     static final int EV_CLEAR   = 0x0020;
++    static final int EV_OOBAND  = 0x2000;  // EV_FLAG1: a read event that reports urgent data
++    static final int EV_EOF     = 0x8000;
+ 
+     /**
+      * Allocates a poll array to handle up to {@code count} events.
+@@ -101,6 +103,13 @@
+         return unsafe.getShort(address + OFFSET_FLAGS);
+     }
+ 
++    // A filter no kevent has, written over an event the selector has decided to ignore
++    static final short IGNORED_FILTER = 0;
++
++    static void ignoreEvent(long address) {
++        unsafe.putShort(address + OFFSET_FILTER, IGNORED_FILTER);
++    }
++
+     // -- Native methods --
+ 
+     private static native int keventSize();
+@@ -117,4 +126,11 @@
+ 
+     static native int poll(int kqfd, long pollAddress, int nevents, long timeout)
+         throws IOException;
++
++    /**
++     * Returns true if socket {@code fd} has SO_OOBINLINE off and no normal data to read,
++     * after discarding the urgent byte pending on it, as TCP urgent data is then specified
++     * to be, if it has not been already; else returns false and changes nothing.
++     */
++    static native boolean discardUrgentData(int fd);
+ }
+--- a/src/java.base/macosx/classes/sun/nio/ch/KQueueSelectorImpl.java
++++ b/src/java.base/macosx/classes/sun/nio/ch/KQueueSelectorImpl.java
+@@ -32,13 +32,16 @@
+ import java.util.ArrayDeque;
+ import java.util.Deque;
+ import java.util.HashMap;
++import java.util.HashSet;
+ import java.util.Map;
++import java.util.Set;
+ import java.util.concurrent.TimeUnit;
+ import java.util.function.Consumer;
+ 
+ import static sun.nio.ch.KQueue.EVFILT_READ;
+ import static sun.nio.ch.KQueue.EVFILT_WRITE;
+ import static sun.nio.ch.KQueue.EV_ADD;
++import static sun.nio.ch.KQueue.EV_CLEAR;
+ import static sun.nio.ch.KQueue.EV_DELETE;
+ 
+ /**
+@@ -63,6 +66,10 @@
+     // maps file descriptor to selection key, synchronize on selector
+     private final Map<Integer, SelectionKeyImpl> fdToKey = new HashMap<>();
+ 
++    // Mavergreen: sockets whose read filter is EV_CLEAR while at an urgent mark, synchronize
++    // on selector
++    private final Set<Integer> edgeTriggeredReads = new HashSet<>();
++
+     // pending new registrations/updates, queued by setEventOps
+     private final Object updateLock = new Object();
+     private final Deque<SelectionKeyImpl> updateKeys = new ArrayDeque<>();
+@@ -109,28 +116,42 @@
+         processUpdateQueue();
+         processDeregisterQueue();
+ 
+-        if (Thread.currentThread().isVirtual()) {
+-            numEntries = (timedPoll)
+-                    ? timedPoll(TimeUnit.MILLISECONDS.toNanos(to))
+-                    : untimedPoll(blocking);
+-        } else {
+-            try {
+-                begin(blocking);
+-                do {
+-                    long startTime = timedPoll ? System.nanoTime() : 0;
+-                    numEntries = KQueue.poll(kqfd, pollArrayAddress, MAX_KEVENTS, to);
+-                    if (numEntries == IOStatus.INTERRUPTED && timedPoll) {
+-                        // timed poll interrupted so need to adjust timeout
+-                        long adjust = System.nanoTime() - startTime;
+-                        to -= TimeUnit.NANOSECONDS.toMillis(adjust);
+-                        if (to <= 0) {
+-                            // timeout expired so no retry
+-                            numEntries = 0;
++        long deadline = timedPoll ? System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(to) : 0;
++        for (;;) {
++            if (Thread.currentThread().isVirtual()) {
++                numEntries = (timedPoll)
++                        ? timedPoll(TimeUnit.MILLISECONDS.toNanos(to))
++                        : untimedPoll(blocking);
++            } else {
++                try {
++                    begin(blocking);
++                    do {
++                        long startTime = timedPoll ? System.nanoTime() : 0;
++                        numEntries = KQueue.poll(kqfd, pollArrayAddress, MAX_KEVENTS, to);
++                        if (numEntries == IOStatus.INTERRUPTED && timedPoll) {
++                            // timed poll interrupted so need to adjust timeout
++                            long adjust = System.nanoTime() - startTime;
++                            to -= TimeUnit.NANOSECONDS.toMillis(adjust);
++                            if (to <= 0) {
++                                // timeout expired so no retry
++                                numEntries = 0;
++                            }
+                         }
+-                    }
+-                } while (numEntries == IOStatus.INTERRUPTED);
+-            } finally {
+-                end(blocking);
++                    } while (numEntries == IOStatus.INTERRUPTED);
++                } finally {
++                    end(blocking);
++                }
++            }
++            // Mavergreen: if every event polled was urgent data alone (see
++            // filterUrgentOnlyEvents), nothing is ready: wait on for the rest of the timeout.
++            if (numEntries <= 0 || filterUrgentOnlyEvents(numEntries) < numEntries || !blocking)
++                break;
++            if (timedPoll) {
++                to = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
++                if (to <= 0) {
++                    numEntries = 0;
++                    break;
++                }
+             }
+         }
+         assert IOStatus.check(numEntries);
+@@ -140,6 +161,38 @@
+     }
+ 
+     /**
++     * Mavergreen: Mac OS X 10.9's kqueue keeps reporting a socket readable (EV_OOBAND) for as
++     * long as it sits at a TCP urgent mark with nothing to read, which read() never returns
++     * while SO_OOBINLINE is off. Discarding the urgent byte does not clear that state; only
++     * normal data arriving does. So such an event is ignored, its urgent byte discarded (as
++     * the socket option specifies), and the socket's read filter re-registered with
++     * EV_CLEAR, which reports only new activity, until a real read event (data, EOF) puts
++     * the filter back to level-triggered. Returns how many polled events it ignored.
++     */
++    private int filterUrgentOnlyEvents(int numEntries) {
++        int ignored = 0;
++        for (int i = 0; i < numEntries; i++) {
++            long kevent = KQueue.getEvent(pollArrayAddress, i);
++            int fd = KQueue.getDescriptor(kevent);
++            if (fd == fd0 || KQueue.getFilter(kevent) != EVFILT_READ || !fdToKey.containsKey(fd))
++                continue;
++            if ((KQueue.getFlags(kevent) & (KQueue.EV_OOBAND | KQueue.EV_EOF)) == KQueue.EV_OOBAND
++                    && KQueue.discardUrgentData(fd)) {
++                if (edgeTriggeredReads.add(fd)) {
++                    KQueue.register(kqfd, fd, EVFILT_READ, EV_DELETE);
++                    KQueue.register(kqfd, fd, EVFILT_READ, EV_ADD | EV_CLEAR);
++                }
++                KQueue.ignoreEvent(kevent);
++                ignored++;
++            } else if (edgeTriggeredReads.remove(fd)) {
++                KQueue.register(kqfd, fd, EVFILT_READ, EV_DELETE);
++                KQueue.register(kqfd, fd, EVFILT_READ, EV_ADD);
++            }
++        }
++        return ignored;
++    }
++
++    /**
+      * If blocking, parks the current virtual thread until a file descriptor is polled
+      * or the thread is interrupted.
+      */
+@@ -194,6 +247,7 @@
+                     // DatagramChannelImpl::disconnect has reset socket
+                     if (ski.getAndClearReset() && registeredEvents != 0) {
+                         KQueue.register(kqfd, fd, EVFILT_READ, EV_DELETE);
++                        edgeTriggeredReads.remove(fd);
+                         registeredEvents = 0;
+                     }
+ 
+@@ -203,6 +257,7 @@
+                         if ((registeredEvents & Net.POLLIN) != 0) {
+                             if ((newEvents & Net.POLLIN) == 0) {
+                                 KQueue.register(kqfd, fd, EVFILT_READ, EV_DELETE);
++                                edgeTriggeredReads.remove(fd);
+                             }
+                         } else if ((newEvents & Net.POLLIN) != 0) {
+                             KQueue.register(kqfd, fd, EVFILT_READ, EV_ADD);
+@@ -254,6 +309,9 @@
+                 if (ski != null) {
+                     int rOps = 0;
+                     short filter = KQueue.getFilter(kevent);
++                    if (filter == KQueue.IGNORED_FILTER) {
++                        continue;
++                    }
+                     if (filter == EVFILT_READ) {
+                         rOps |= Net.POLLIN;
+                     } else if (filter == EVFILT_WRITE) {
+@@ -299,6 +357,7 @@
+         int fd = ski.getFDVal();
+         int registeredEvents = ski.registeredEvents();
+         if (fdToKey.remove(fd) != null) {
++            edgeTriggeredReads.remove(fd);
+             if (registeredEvents != 0) {
+                 if ((registeredEvents & Net.POLLIN) != 0)
+                     KQueue.register(kqfd, fd, EVFILT_READ, EV_DELETE);
+--- a/src/java.base/macosx/native/libnio/ch/KQueue.c
++++ b/src/java.base/macosx/native/libnio/ch/KQueue.c
+@@ -27,6 +27,8 @@
+ #include <sys/types.h>
+ #include <sys/event.h>
+ #include <sys/time.h>
++#include <sys/socket.h>
++#include <sys/ioctl.h>
+ 
+ #include "jni.h"
+ #include "jni_util.h"
+@@ -111,3 +113,22 @@
+     }
+     return res;
+ }
++
++JNIEXPORT jboolean JNICALL
++Java_sun_nio_ch_KQueue_discardUrgentData(JNIEnv *env, jclass clazz, jint fd)
++{
++    int oobinline = 0;
++    int pending = 0;
++    socklen_t len = sizeof(oobinline);
++    char c;
++
++    if (getsockopt(fd, SOL_SOCKET, SO_OOBINLINE, &oobinline, &len) != 0 || oobinline != 0) {
++        return JNI_FALSE;
++    }
++    if (ioctl(fd, FIONREAD, &pending) != 0 || pending != 0) {
++        return JNI_FALSE;
++    }
++    /* EINVAL: the byte was discarded before, and the socket still sits at its mark */
++    (void) recv(fd, &c, 1, MSG_OOB | MSG_DONTWAIT);
++    return JNI_TRUE;
++}

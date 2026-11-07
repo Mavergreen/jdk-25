@@ -1,0 +1,20 @@
+What: os_bsd.cpp includes <sys/proc_info.h> when MAXTHREADNAMESIZE is not already defined, before
+  set_native_thread_name uses it.
+Why on 10.9: the 10.9 SDK defines MAXTHREADNAMESIZE only in <sys/proc_info.h>; later SDKs also
+  also define it in <mach/thread_info.h>, which os_bsd.cpp already reaches.
+Provenance: ours.
+Exit: never (the 10.9 SDK stays the pin).
+
+--- a/src/hotspot/os/bsd/os_bsd.cpp
++++ b/src/hotspot/os/bsd/os_bsd.cpp
+@@ -2237,6 +2237,10 @@ uint os::processor_id() {
+ #endif
+ }
+ 
++#if defined(__APPLE__) && !defined(MAXTHREADNAMESIZE)
++#include <sys/proc_info.h> // Mavergreen: MAXTHREADNAMESIZE before the 10.10 SDK
++#endif
++
+ void os::set_native_thread_name(const char *name) {
+ #if defined(__APPLE__) && MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_5
+   // This is only supported in Snow Leopard and beyond

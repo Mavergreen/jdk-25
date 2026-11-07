@@ -1,0 +1,20 @@
+What: UnixConstants.java.template defines CLONE_NOOWNERCOPY (0x0002) when <sys/clonefile.h> does
+  not, so the generated sun.nio.fs.UnixConstants keeps the constant.
+Why on 10.9: <sys/clonefile.h> on 10.9 is Recaulk's, which declares clonefile (returning ENOTSUP)
+  and CLONE_NOFOLLOW but not CLONE_NOOWNERCOPY (10.13). The value only reaches clonefile, which
+  then fails with ENOTSUP and Files.copy falls back to copying.
+Provenance: ours.
+Exit: Recaulk's sys/clonefile.h defines CLONE_NOOWNERCOPY, then delete this patch.
+
+--- a/src/java.base/unix/classes/sun/nio/fs/UnixConstants.java.template
++++ b/src/java.base/unix/classes/sun/nio/fs/UnixConstants.java.template
+@@ -33,6 +33,9 @@
+ #ifdef _ALLBSD_SOURCE
+ #include <sys/attr.h>
+ #include <sys/clonefile.h>
++#ifndef CLONE_NOOWNERCOPY
++#define CLONE_NOOWNERCOPY 0x0002 /* Mavergreen: sys/clonefile.h has it from 10.13 */
++#endif
+ #endif
+ 
+ /* To be able to name the Java constants the same as the C constants without

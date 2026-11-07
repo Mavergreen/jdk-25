@@ -1,0 +1,27 @@
+What: mig runs with -arch set to the target CPU (arm64 for aarch64, else OPENJDK_TARGET_CPU) when
+  it generates the serviceability agent's mach_exc stubs.
+Why on 10.9: without -arch, mig preprocesses mach_exc.defs for the build host's arch; on an arm64
+  host cross-building for x86_64 against the 10.9 SDK, whose mach headers predate arm64, that stops
+  with "architecture not supported". An upstream cross-build bug, independent of the SDK.
+Provenance: ours.
+Exit: upstream passes the target arch to mig, then delete this patch.
+
+--- a/make/modules/jdk.hotspot.agent/Gensrc.gmk
++++ b/make/modules/jdk.hotspot.agent/Gensrc.gmk
+@@ -45,10 +45,15 @@ ifeq ($(call isTargetOs, macosx), true)
+   ifneq ($(SYSROOT), )
+     MIG_SYSROOT_FLAGS := -isysroot $(SYSROOT)
+   endif
++  ifeq ($(call isTargetCpu, aarch64), true)
++    MIG_ARCH := arm64
++  else
++    MIG_ARCH := $(OPENJDK_TARGET_CPU)
++  endif
+ 
+   $(MACH_EXC_SERVER): $(SYSROOT)/usr/include/mach/mach_exc.defs
+ 	$(call MakeTargetDir)
+-	$(MIG) $(MIG_SYSROOT_FLAGS) \
++	$(MIG) $(MIG_SYSROOT_FLAGS) -arch $(MIG_ARCH) \
+ 	    -server $@ -user $(MACH_EXC_USER) \
+ 	    -header $(MACH_EXC_HEADER) $(SYSROOT)/usr/include/mach/mach_exc.defs
+ 

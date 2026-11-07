@@ -1,0 +1,22 @@
+What: configure targets Mac OS X 10.9 (MACOSX_VERSION_MIN 10.9.0) on x86_64; aarch64,
+  used only for the cross build's host build JDK, keeps upstream's 11.00.00.
+Why on 10.9: upstream hard-codes 11.00.00, so every Mach-O would refuse to load on 10.9.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  make/autoconf/flags.m4 hunk 1/1, unchanged.
+Exit: never (upstream's floor is macOS 11).
+
+--- a/make/autoconf/flags.m4
++++ b/make/autoconf/flags.m4
+@@ -133,7 +133,11 @@
+     # of the OS. It currently has a hard coded value. Setting this also limits
+     # exposure to API changes in header files. Bumping this is likely to
+     # require code changes to build.
+-    MACOSX_VERSION_MIN=11.00.00
++    if test "x$OPENJDK_TARGET_CPU_ARCH" = xaarch64; then
++      MACOSX_VERSION_MIN=11.00.00
++    else
++      MACOSX_VERSION_MIN=10.9.0
++    fi
+     MACOSX_VERSION_MIN_NODOTS=${MACOSX_VERSION_MIN//\./}
+ 
+     AC_SUBST(MACOSX_VERSION_MIN)

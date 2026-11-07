@@ -1,0 +1,38 @@
+What: DatagramChannel.disconnect on macOS uses the BSD connect-to-unspecified path (as on
+  the other BSDs), and treats EADDRNOTAVAIL from it as success, instead of disconnectx.
+Why on 10.9: disconnectx arrived in 10.11.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.base/unix/native/libnio/ch/DatagramChannelImpl.c hunks 1-2/2, unchanged (Hiker159
+  credits Jazzzny's JDK 17 patches for this path).
+Exit: Recaulk back-fills disconnectx.
+
+--- a/src/java.base/unix/native/libnio/ch/DatagramChannelImpl.c
++++ b/src/java.base/unix/native/libnio/ch/DatagramChannelImpl.c
+@@ -50,10 +50,6 @@
+     jint fd = fdval(env, fdo);
+     int rv;
+ 
+-#if defined(__APPLE__)
+-    // On macOS systems we use disconnectx
+-    rv = disconnectx(fd, SAE_ASSOCID_ANY, SAE_CONNID_ANY);
+-#else
+     SOCKETADDRESS sa;
+     memset(&sa, 0, sizeof(sa));
+     #if defined(_ALLBSD_SOURCE)
+@@ -64,14 +60,9 @@
+     socklen_t len = isIPv6 ? sizeof(struct sockaddr_in6) :
+                              sizeof(struct sockaddr_in);
+     rv = connect(fd, &sa.sa, len);
+-#endif
+ 
+-#if defined(_ALLBSD_SOURCE) && !defined(__APPLE__)
+-    // On _ALLBSD_SOURCE except __APPLE__ we consider EADDRNOTAVAIL
+-    // error to be OK and ignore it. __APPLE__ systems are excluded
+-    // in this check since for __APPLE__ systems, unlike other BSD systems,
+-    // we issue a "disconnectx" call (a few lines above),
+-    // which isn't expected to return this error code.
++#if defined(_ALLBSD_SOURCE)
++    // BSD disconnect via connect may report EADDRNOTAVAIL on success.
+     if (rv < 0 && errno == EADDRNOTAVAIL)
+         rv = errno = 0;
+ #elif defined(_AIX)

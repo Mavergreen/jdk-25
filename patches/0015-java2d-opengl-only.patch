@@ -1,0 +1,88 @@
+What: Java2D always uses OpenGL and never Metal, failing clearly if OpenGL is missing; the
+  layer repaint walk looks only for CAOpenGLLayer.
+Why on 10.9: no Metal (10.11+); patches/0002 already leaves the Metal pipeline unbuilt.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java hunk 1/1,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/AWTSurfaceLayers.m hunks 1-2/2, unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java
++++ b/src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java
+@@ -83,51 +83,13 @@
+     }
+ 
+     private static void initJavaFlags() {
+-        PropertyState oglState = getBooleanProp("sun.java2d.opengl", PropertyState.UNSPECIFIED);
+-        PropertyState metalState = getBooleanProp("sun.java2d.metal", PropertyState.UNSPECIFIED);
+-
+-        // Handle invalid combinations to use the default rendering pipeline
+-        // The default rendering pipeline is Metal
+-        if ((oglState == PropertyState.UNSPECIFIED && metalState == PropertyState.UNSPECIFIED) ||
+-            (oglState == PropertyState.DISABLED && metalState == PropertyState.DISABLED) ||
+-            (oglState == PropertyState.ENABLED && metalState == PropertyState.ENABLED)) {
+-            metalState = PropertyState.ENABLED; // Enable default pipeline
+-            oglState = PropertyState.DISABLED; // Disable non-default pipeline
+-        }
+-
+-        if (metalState == PropertyState.UNSPECIFIED) {
+-            if (oglState == PropertyState.DISABLED) {
+-                oglEnabled = false;
+-                metalEnabled = true;
+-            } else {
+-                oglEnabled = true;
+-                metalEnabled = false;
+-            }
+-        } else if (metalState == PropertyState.ENABLED) {
+-            oglEnabled = false;
+-            metalEnabled = true;
+-        } else if (metalState == PropertyState.DISABLED) {
+-            oglEnabled = true;
+-            metalEnabled = false;
+-        }
+-
++        // The legacy build has no Metal backend, even if explicitly requested.
++        metalEnabled = false;
++        metalVerbose = isBooleanPropTrueVerbose("sun.java2d.metal");
+         oglVerbose = isBooleanPropTrueVerbose("sun.java2d.opengl");
+-        metalVerbose = isBooleanPropTrueVerbose("sun.java2d.metal");
+-
+-        if (oglEnabled && !metalEnabled) {
+-            // Check whether OGL is available
+-            if (!CGLGraphicsConfig.isCGLAvailable()) {
+-                if (oglVerbose) {
+-                    System.out.println("Could not enable OpenGL pipeline (CGL not available)");
+-                }
+-                oglEnabled = false;
+-                metalEnabled = true;
+-            }
+-        }
+-
+-        // At this point one of the rendering pipeline must be enabled.
+-        if (!metalEnabled && !oglEnabled) {
+-            throw new InternalError("Error - unable to initialize any rendering pipeline.");
++        oglEnabled = CGLGraphicsConfig.isCGLAvailable();
++        if (!oglEnabled) {
++            throw new InternalError("Legacy macOS build requires OpenGL.");
+         }
+     }
+ 
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTSurfaceLayers.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTSurfaceLayers.m
+@@ -29,7 +29,6 @@
+ #import "JNIUtilities.h"
+ 
+ #import <QuartzCore/CATransaction.h>
+-#import <QuartzCore/CAMetalLayer.h>
+ 
+ @implementation AWTSurfaceLayers
+ 
+@@ -71,8 +70,7 @@
+ // Updates back buffer size of the layer if it's an OpenGL/Metal layer
+ // including all OpenGL/Metal sublayers
+ + (void) repaintLayersRecursively:(CALayer*)aLayer {
+-    if ([aLayer isKindOfClass:[CAOpenGLLayer class]] ||
+-        [aLayer isKindOfClass:[CAMetalLayer class]]) {
++    if ([aLayer isKindOfClass:[CAOpenGLLayer class]]) {
+         [aLayer setNeedsDisplay];
+     }
+     for(CALayer *child in aLayer.sublayers) {

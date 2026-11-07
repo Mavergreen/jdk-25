@@ -1,0 +1,27 @@
+What: keyboard input checks for the Keyman layout with rangeOfString: (nil-guarded) instead
+  of containsString:.
+Why on 10.9: -[NSString containsString:] arrived in 10.10.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m hunks 1-2/2, unchanged.
+Exit: Recaulk back-fills -[NSString containsString:].
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m
+@@ -262,7 +262,7 @@
+ 
+ - (void) keyDown: (NSEvent *)event {
+     fProcessingKeystroke = YES;
+-    fKeyEventsNeeded = ![(NSString *)kbdLayout containsString:@KEYMAN_LAYOUT];
++    fKeyEventsNeeded = !(kbdLayout != nil && [(NSString *)kbdLayout rangeOfString:@KEYMAN_LAYOUT].location != NSNotFound);
+ 
+     // Allow TSM to look at the event and potentially send back NSTextInputClient messages.
+     [self interpretKeyEvents:[NSArray arrayWithObject:event]];
+@@ -948,7 +948,7 @@
+ 
+     if ((utf16Length > 2) ||
+         ((utf8Length > 1) && [self isCodePointInUnicodeBlockNeedingIMEvent:codePoint]) ||
+-        [(NSString *)kbdLayout containsString:@KEYMAN_LAYOUT]) {
++        (kbdLayout != nil && [(NSString *)kbdLayout rangeOfString:@KEYMAN_LAYOUT].location != NSNotFound)) {
+ #ifdef IM_DEBUG
+         NSLog(@"string complex ");
+ #endif

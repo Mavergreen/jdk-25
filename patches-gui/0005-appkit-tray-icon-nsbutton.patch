@@ -1,0 +1,30 @@
+What: the tray icon view subclasses a borderless, image-only NSButton instead of
+  NSStatusBarButton.
+Why on 10.9: NSStatusBarButton arrived in 10.10.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.h hunk 1/1,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.m hunk 1/1, unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.h
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.h
+@@ -61,7 +61,7 @@
+ //==================================================================================
+ /*
+  * AWTTrayIconView */
+-@interface AWTTrayIconView : NSStatusBarButton <NSMenuDelegate> {
++@interface AWTTrayIconView : NSButton <NSMenuDelegate> {
+ @public
+     AWTTrayIcon *trayIcon;
+     NSTrackingArea *trackingArea;
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.m
+@@ -184,6 +184,8 @@
+ -(id)initWithTrayIcon:(AWTTrayIcon *)theTrayIcon {
+     self = [super initWithFrame:NSMakeRect(0, 0, 1, 1)];
+ 
++    [self setBordered:NO];
++    [self setImagePosition:NSImageOnly];
+     [self setTrayIcon: theTrayIcon];
+     [self setImage: nil];
+     isHighlighted = NO;

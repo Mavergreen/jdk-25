@@ -1,0 +1,146 @@
+What: the build neither needs nor links Metal: configure stops requiring metal/metallib,
+  libawt, libawt_lwawt, libsplashscreen and libosxui stop linking Metal.framework, the
+  java2d/metal native sources are left out of libawt_lwawt, and shaders.metallib is not built.
+Why on 10.9: Metal.framework arrived in 10.11, so a library linking it does not load on 10.9.
+  Upstream builds all of java.desktop on macOS even headless (--enable-headless-only is refused
+  there), and libawt is loaded headless for images and fonts.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  make/autoconf/toolchain.m4 hunk 1/1, make/modules/java.desktop/lib/AwtLibraries.gmk
+  hunks 1-4/4, make/modules/java.desktop/lib/ClientLibraries.gmk hunks 1-3/3, unchanged.
+Exit: never (no Metal on 10.9).
+
+--- a/make/autoconf/toolchain.m4
++++ b/make/autoconf/toolchain.m4
+@@ -687,34 +687,10 @@
+     UTIL_REQUIRE_PROGS(OTOOL, otool)
+     UTIL_REQUIRE_PROGS(INSTALL_NAME_TOOL, install_name_tool)
+ 
+-    UTIL_LOOKUP_TOOLCHAIN_PROGS(METAL, metal)
+-    if test "x$METAL" = x; then
+-      AC_MSG_CHECKING([if metal can be run using xcrun])
+-      METAL="xcrun -sdk macosx metal"
+-      test_metal=`$METAL --version 2>&1`
+-      if test $? -ne 0; then
+-        AC_MSG_RESULT([no])
+-        AC_MSG_NOTICE([A full XCode is required to build the JDK (not only command line tools)])
+-        AC_MSG_NOTICE([If you have XCode installed, you might need to reset the Xcode active developer directory])
+-        AC_MSG_NOTICE([using 'sudo xcode-select -r'])
+-        AC_MSG_ERROR([XCode tool 'metal' neither found in path nor with xcrun])
+-      else
+-        AC_MSG_RESULT([yes, will be using '$METAL'])
+-      fi
+-    fi
+-
+-    UTIL_LOOKUP_TOOLCHAIN_PROGS(METALLIB, metallib)
+-    if test "x$METALLIB" = x; then
+-      AC_MSG_CHECKING([if metallib can be run using xcrun])
+-      METALLIB="xcrun -sdk macosx metallib"
+-      test_metallib=`$METALLIB --version 2>&1`
+-      if test $? -ne 0; then
+-        AC_MSG_RESULT([no])
+-        AC_MSG_ERROR([XCode tool 'metallib' neither found in path nor with xcrun])
+-      else
+-        AC_MSG_RESULT([yes, will be using '$METALLIB'])
+-      fi
+-    fi
++    # Legacy macOS uses OpenGL; no Metal compiler is needed.
++    METAL=
++    METALLIB=
++
+   fi
+ 
+   if test "x$TOOLCHAIN_TYPE" = xmicrosoft; then
+--- a/make/modules/java.desktop/lib/AwtLibraries.gmk
++++ b/make/modules/java.desktop/lib/AwtLibraries.gmk
+@@ -147,7 +147,6 @@
+         -framework AudioToolbox \
+         -framework Cocoa \
+         -framework JavaRuntimeSupport \
+-        -framework Metal \
+         -framework OpenGL, \
+     LIBS_windows := advapi32.lib comctl32.lib comdlg32.lib delayimp.lib \
+         gdi32.lib imm32.lib kernel32.lib ole32.lib shell32.lib shlwapi.lib \
+@@ -334,7 +333,6 @@
+       libawt_lwawt/awt \
+       libawt_lwawt/font \
+       libawt_lwawt/java2d/opengl \
+-      libawt_lwawt/java2d/metal \
+       include \
+       common/awt/debug \
+       common/java2d/opengl \
+@@ -342,7 +340,8 @@
+       #
+ 
+   LIBAWT_LWAWT_EXCLUDE_FILES := fontpath.c awt_Font.c X11Color.c
+-  LIBAWT_LWAWT_EXCLUDES := $(TOPDIR)/src/$(MODULE)/unix/native/common/awt/medialib
++  LIBAWT_LWAWT_EXCLUDES := $(TOPDIR)/src/$(MODULE)/unix/native/common/awt/medialib \
++      $(TOPDIR)/src/$(MODULE)/macosx/native/libawt_lwawt/java2d/metal
+ 
+   LIBAWT_LWAWT_STATIC_EXCLUDE_OBJS := systemScale.o
+ 
+@@ -380,7 +379,6 @@
+           -framework Cocoa \
+           -framework ExceptionHandling \
+           -framework JavaRuntimeSupport \
+-          -framework Metal \
+           -framework OpenGL \
+           -framework QuartzCore \
+           -framework Security, \
+--- a/make/modules/java.desktop/lib/ClientLibraries.gmk
++++ b/make/modules/java.desktop/lib/ClientLibraries.gmk
+@@ -269,7 +269,6 @@
+           -framework ApplicationServices \
+           -framework Cocoa \
+           -framework Foundation \
+-          -framework Metal \
+           -framework Security, \
+       LIBS_aix := $(LIBDL) $(X_LIBS) -lX11 -lXext, \
+       LIBS_windows := delayimp.lib gdi32.lib kernel32.lib user32.lib, \
+@@ -427,32 +426,6 @@
+   ## Build libosxui
+   ##############################################################################
+ 
+-  SHADERS_SRC := \
+-      $(TOPDIR)/src/java.desktop/macosx/native/libawt_lwawt/java2d/metal/shaders.metal
+-  SHADERS_SUPPORT_DIR := $(SUPPORT_OUTPUTDIR)/native/java.desktop/libosxui
+-  SHADERS_AIR := $(SHADERS_SUPPORT_DIR)/shaders.air
+-  SHADERS_LIB := $(call FindLibDirForModule, $(MODULE))/shaders.metallib
+-
+-  $(eval $(call SetupExecute, metal_shaders, \
+-      INFO := Running metal on $(notdir $(SHADERS_SRC)) (for libosxui.dylib), \
+-      DEPS := $(SHADERS_SRC), \
+-      OUTPUT_FILE := $(SHADERS_AIR), \
+-      SUPPORT_DIR := $(SHADERS_SUPPORT_DIR), \
+-      COMMAND := $(METAL) -c -std=osx-metal2.0 \
+-          -mmacosx-version-min=$(MACOSX_VERSION_MIN) \
+-          -o $(SHADERS_AIR) $(SHADERS_SRC), \
+-  ))
+-
+-  $(eval $(call SetupExecute, metallib_shaders, \
+-      INFO := Running metallib on $(notdir $(SHADERS_AIR)) (for libosxui.dylib), \
+-      DEPS := $(SHADERS_AIR), \
+-      OUTPUT_FILE := $(SHADERS_LIB), \
+-      SUPPORT_DIR := $(SHADERS_SUPPORT_DIR), \
+-      COMMAND := $(METALLIB) -o $(SHADERS_LIB) $(SHADERS_AIR), \
+-  ))
+-
+-  TARGETS += $(SHADERS_LIB)
+-
+   $(eval $(call SetupJdkLibrary, BUILD_LIBOSXUI, \
+       NAME := osxui, \
+       OPTIMIZATION := LOW, \
+@@ -467,13 +440,11 @@
+           -framework ApplicationServices \
+           -framework Carbon \
+           -framework Cocoa \
+-          -framework JavaRuntimeSupport \
+-          -framework Metal, \
++          -framework JavaRuntimeSupport, \
+   ))
+ 
+   TARGETS += $(BUILD_LIBOSXUI)
+ 
+-  $(BUILD_LIBOSXUI): $(SHADERS_LIB)
+ endif
+ 
+ ################################################################################

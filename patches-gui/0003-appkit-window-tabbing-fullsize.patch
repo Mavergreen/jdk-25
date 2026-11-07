@@ -1,0 +1,31 @@
+What: full-size content view and automatic window tabbing are used only where NSWindow
+  supports them.
+Why on 10.9: the full-size content view arrived in 10.10, automatic tabbing in 10.12.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m hunks 1-2/2, unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m
+@@ -215,7 +215,10 @@
+         type |= NSTitledWindowMask;
+         if (IS(styleBits, CLOSEABLE))            type |= NSWindowStyleMaskClosable;
+         if (IS(styleBits, RESIZABLE))            type |= NSWindowStyleMaskResizable;
+-        if (IS(styleBits, FULL_WINDOW_CONTENT))  type |= NSWindowStyleMaskFullSizeContentView;
++        if (IS(styleBits, FULL_WINDOW_CONTENT) &&
++            [NSWindow instancesRespondToSelector:@selector(setTitleVisibility:)]) {
++            type |= NSWindowStyleMaskFullSizeContentView;
++        }
+     } else {
+         type |= NSWindowStyleMaskBorderless;
+     }
+@@ -1110,6 +1113,9 @@
+ {
+     JNI_COCOA_ENTER(env);
+     [ThreadUtilities performOnMainThreadWaiting:NO block:^(){
++        if (![NSWindow respondsToSelector:@selector(setAllowsAutomaticWindowTabbing:)]) {
++            return;
++        }
+         if (allowAutomaticTabbing) {
+             [NSWindow setAllowsAutomaticWindowTabbing:YES];
+         } else {

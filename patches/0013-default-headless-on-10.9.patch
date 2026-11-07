@@ -1,0 +1,38 @@
+What: on macOS, java.awt.headless defaults to true: SystemProps sets it when nothing else has
+  (putIfAbsent, keyed on os.name), and the launcher's headless flag starts true. Any
+  -Djava.awt.headless=false (command line, JDK_JAVA_OPTIONS, JAVA_TOOL_OPTIONS) still overrides it.
+Why on 10.9: release 1 does not support AWT on 10.9 (ruling R10), so a program that touches AWT
+  gets a clear HeadlessException rather than a half-working window. Upstream refuses
+  --enable-headless-only on macOS, so this is the default, not a configure flag.
+Provenance: ours. os.name rather than OperatingSystem.isMacOS(): SystemProps runs before that
+  class can initialize, and calling it there fails VM init.
+Exit: the GUI release's gating commit deletes this patch (ruling R10).
+
+--- a/src/java.base/share/classes/jdk/internal/util/SystemProps.java
++++ b/src/java.base/share/classes/jdk/internal/util/SystemProps.java
+@@ -129,6 +129,11 @@ public static Map<String, String> initProperties() {
+         putIfAbsent(props, "sun.io.unicode.encoding", raw.propDefault(Raw._sun_io_unicode_encoding_NDX));
+         putIfAbsent(props, "sun.cpu.isalist", raw.propDefault(Raw._sun_cpu_isalist_NDX));
+         putIfAbsent(props, "sun.cpu.endian", raw.propDefault(Raw._sun_cpu_endian_NDX));
++        // Mavergreen: AWT on Mac OS X 10.9 is not supported yet, so the JDK is headless
++        // unless -Djava.awt.headless=false asks otherwise.
++        if ("Mac OS X".equals(props.get("os.name"))) {
++            putIfAbsent(props, "java.awt.headless", "true");
++        }
+ 
+         /* Construct i18n related options */
+         fillI18nProps(props,"user.language", raw.propDefault(Raw._display_language_NDX),
+--- a/src/java.base/share/native/libjli/java.c
++++ b/src/java.base/share/native/libjli/java.c
+@@ -1168,7 +1168,11 @@ ParseArguments(int *pargc, char ***pargv,
+     char **argv = *pargv;
+     int mode = LM_UNKNOWN;
+     char *arg = NULL;
++#ifdef __APPLE__
++    bool headless = true; /* Mavergreen: headless unless -Djava.awt.headless=false */
++#else
+     bool headless = false;
++#endif
+     char *splash_file_path = NULL; // value of "-splash:" option
+ 
+     *pret = 0;

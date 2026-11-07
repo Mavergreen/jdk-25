@@ -1,0 +1,31 @@
+What: CommonComponentAccessibility subclasses NSObject <NSAccessibility> instead of
+  NSAccessibilityElement, and decides isAccessibilitySelectorAllowed: itself.
+Why on 10.9: NSAccessibilityElement arrived in 10.10. Untested with VoiceOver on 10.9.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.h hunk 1/1,
+  src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.m hunk 1/1,
+  unchanged.
+Exit: never.
+
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.h
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.h
+@@ -31,7 +31,7 @@
+ #import <AppKit/AppKit.h>
+ #import "JavaAccessibilityUtilities.h"
+ 
+-@interface CommonComponentAccessibility : NSAccessibilityElement {
++@interface CommonComponentAccessibility : NSObject <NSAccessibility> {
+     NSView *fView;
+     NSObject *fParent;
+ 
+--- a/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.m
++++ b/src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.m
+@@ -1204,7 +1204,7 @@
+         ![[self actionSelectors] containsObject:NSStringFromSelector(selector)]) {
+         return NO;
+     }
+-    return [super isAccessibilitySelectorAllowed:selector];
++    return [self respondsToSelector:selector]; // No NSAccessibilityElement defaults.
+ }
+ 
+ - (BOOL)accessibilityPerformPick {

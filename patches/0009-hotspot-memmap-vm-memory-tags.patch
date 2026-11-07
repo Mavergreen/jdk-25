@@ -1,0 +1,32 @@
+What: the macOS memory-map printer names VM_MEMORY_MALLOC_MEDIUM, VM_MEMORY_MALLOC_PROB_GUARD and
+  VM_MEMORY_GENEALOGY only where <mach/vm_statistics.h> defines them.
+Why on 10.9: the 10.9 SDK defines none of the three. A region with one of those tags then prints as
+  "user_tag=0x..", the printer's existing fallback.
+Provenance: ours.
+Exit: never (the 10.9 SDK stays the pin).
+
+--- a/src/hotspot/os/bsd/memMapPrinter_macosx.cpp
++++ b/src/hotspot/os/bsd/memMapPrinter_macosx.cpp
+@@ -144,8 +144,12 @@ class MappingInfo {
+       X1(MALLOC_LARGE_REUSED, malloc_lage_reused);
+       X1(ANALYSIS_TOOL, analysis_tool);
+       X1(MALLOC_NANO, malloc_nano);
++#ifdef VM_MEMORY_MALLOC_MEDIUM
+       X1(MALLOC_MEDIUM, malloc_medium);
++#endif
++#ifdef VM_MEMORY_MALLOC_PROB_GUARD
+       X1(MALLOC_PROB_GUARD, malloc_prob_guard);
++#endif
+       X1(MACH_MSG, malloc_msg);
+       X1(IOKIT, IOKit);
+       X1(STACK, stack);
+@@ -174,7 +178,9 @@ class MappingInfo {
+       X1(APPLICATION_SPECIFIC_1, application_specific_1);
+       X1(APPLICATION_SPECIFIC_16, application_specific_16);
+       X1(OS_ALLOC_ONCE, os_alloc_once);
++#ifdef VM_MEMORY_GENEALOGY
+       X1(GENEALOGY, genealogy);
++#endif
+       default:
+         static char buffer[30];
+         snprintf(buffer, sizeof(buffer), "user_tag=0x%x(%d)", user_tag, user_tag);

@@ -1,0 +1,18 @@
+What: HotSpot maps executable memory with MAP_JIT only on macOS/aarch64, not on x86_64.
+Why on 10.9: MAP_JIT is the hardened runtime's flag for executable memory; this build does not
+  enable the hardened runtime on x86_64 (design spec), so 10.9 gets the plain mapping it knows.
+Provenance: Hiker159/jdk-macos-legacy@70d25ea1d6f7292c8e926e9efe112f949800ae10, patches/25/mavericks.patch,
+  src/hotspot/os/bsd/os_bsd.cpp hunk 1/1, unchanged.
+Exit: never on x86_64.
+
+--- a/src/hotspot/os/bsd/os_bsd.cpp
++++ b/src/hotspot/os/bsd/os_bsd.cpp
+@@ -1778,7 +1778,7 @@
+ static char* anon_mmap(char* requested_addr, size_t bytes, bool exec) {
+   // MAP_FIXED is intentionally left out, to leave existing mappings intact.
+   const int flags = MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS
+-      MACOS_ONLY(| (exec ? MAP_JIT : 0));
++      MACOS_AARCH64_ONLY(| (exec ? MAP_JIT : 0));
+ 
+   // Map reserved/uncommitted pages PROT_NONE so we fail early if we
+   // touch an uncommitted page. Otherwise, the read/write might
