@@ -1,0 +1,8 @@
+/VERSION
+/UPSTREAM_VERSION
+/dist/
+.DS_Store
+._*
+.superpowers/
+/.idea/
+CMakeUserPresets.json

@@ -1,0 +1,1 @@
+UPSTREAM_VERSION    # build/version.sh has build/derive-upstream-version.sh stamp REF's version here; shipyard's version.sh reads it back; gitignored (the derived pin)
