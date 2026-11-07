@@ -1,0 +1,9 @@
+TAG=jtreg-8.2.1+1
+apache-ant-1.10.15-bin.zip e59baf898dc5b6d1aa6cd57544715f7e0060b1fdc9e56f24f9898d56612a9e0b https://archive.apache.org/dist/ant/binaries/apache-ant-1.10.15-bin.zip
+jtharness/source.zip ad934a81fdf2b5e01d3e5c78c11b03d291b6ae81001c8901eb5adeeee5415532 https://git.openjdk.org/jtharness/archive/jt6.0-b24.zip
+asmtools/source.zip add7d1334f5a416e0c20f5e180592d24ccf2e0bd6d7a55cc02fbdc157f299877 https://git.openjdk.org/asmtools/archive/9.1-b01.zip
+junit/junit-platform-console-standalone-1.14.2.jar 5566ffe2aa48263867bca745925f73bf7b01591b30d9a60f191c0b16fa0955e9 https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/1.14.2/junit-platform-console-standalone-1.14.2.jar
+testng/testng-7.3.0.jar 63727488f9717d57f0d0a0fee5a1fc10a2be9cfcff2ec3a7187656d663c0774e https://repo1.maven.org/maven2/org/testng/testng/7.3.0/testng-7.3.0.jar
+testng-license/LICENSE.txt c1b9df1275e769f3dbab000d1e457a2d4b0f28eb5da6c77e48dc37eeba202ed7 https://raw.githubusercontent.com/cbeust/testng/7.3.0/LICENSE.txt
+jcommander/jcommander-1.82.jar deeac157c8de6822878d85d0c7bc8467a19cc8484d37788f7804f039dde280b1 https://repo1.maven.org/maven2/com/beust/jcommander/1.82/jcommander-1.82.jar
+guice/guice-5.1.0.jar 4130e50bfac48099c860f0d903b91860c81a249c90f38245f8fed58fc817bc26 https://repo1.maven.org/maven2/com/google/inject/guice/5.1.0/guice-5.1.0.jar

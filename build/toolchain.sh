@@ -18,9 +18,15 @@
 #          jdk_jtreg JDK_HOME prints the home of the jtreg components/jtreg/version pins (TAG, and the
 #          SHA256 of GitHub's tarball of TAG). jtreg publishes no binaries, so the tarball is fetched
 #          with shipyard_fetch_pinned into the build root and built there by its own make/build.sh with
-#          JDK_HOME; build.sh fetches jtreg's dependencies itself and verifies each against the checksum
-#          its make/build-support/version-numbers pins. A test tool only: nothing of it ships; the pin is
-#          the jtreg the pinned jdk25u's CI runs, which tests/jtreg.sh checks.
+#          JDK_HOME. build.sh downloads nothing: jdk_jtreg_fetch has already fetched the source and every
+#          file components/jtreg/deps pins (scripts/pin-jtreg-deps.sh writes it), each with
+#          shipyard_fetch_verified (retried, SHA-256 checked) into a cache under the build root, and
+#          jdk_jtreg puts them where build.sh looks and runs it with --skip-download, its wget and curl
+#          replaced by a command that refuses, so a download it still tries fails the build; build.sh's
+#          own SHA-1 checks still run. A test tool only: nothing of it ships; the pin is the jtreg the
+#          pinned jdk25u's CI runs, which tests/jtreg.sh checks.
+#          jdk_jtreg_fetch fetches all of that and builds nothing; it refuses a components/jtreg/deps made
+#          for another TAG before fetching anything.
 #          jdk_autoconf prints the GNU autoconf components/autoconf/version pins (VERSION, and the SHA256
 #          of its release tarball), built on the GNU m4 components/m4/version pins the same way, both
 #          fetched with shipyard_fetch_pinned and built with /usr/bin/clang (the host's, as BUILD_CC) and
@@ -145,26 +151,54 @@ jdk_pandoc() {
   printf '%s\n' "$_pd_bin"
 }
 
-jdk_jtreg() {
-  [ $# -eq 1 ] && [ -x "$1/bin/java" ] || { echo "jdk_jtreg: usage: jdk_jtreg JDK_HOME (a JDK with bin/java)" >&2; return 1; }
+_jdk_jtreg_pins() {
   _jt_tag="$(sed -n 's/^TAG=//p' "$MAVERICKS_ROOT/components/jtreg/version" | tr -d '[:space:]')"
   _jt_sha="$(sed -n 's/^SHA256=//p' "$MAVERICKS_ROOT/components/jtreg/version" | tr -d '[:space:]')"
   [ -n "$_jt_tag" ] && [ -n "$_jt_sha" ] || { echo "jdk_jtreg: components/jtreg/version needs TAG and SHA256" >&2; return 1; }
+  _jt_deps="$MAVERICKS_ROOT/components/jtreg/deps"
+  _jt_dtag="$(sed -n 's/^TAG=//p' "$_jt_deps" 2>/dev/null)"
+  [ "$_jt_dtag" = "$_jt_tag" ] || {
+    echo "jdk_jtreg: components/jtreg/deps is for ${_jt_dtag:-no jtreg}, not $_jt_tag; run sh scripts/pin-jtreg-deps.sh" >&2; return 1; }
   _jt_ver="${_jt_tag#jtreg-}"
   _jt_cache="$(jdk_build_root)/jtreg-$_jt_sha"
   # platform: GitHub's tarball of tag jtreg-8+2 extracts to jtreg-jtreg-8-2, the tag with + made -
   _jt_src="$_jt_cache/jtreg-$(printf '%s' "$_jt_tag" | tr + -)"
   _jt_home="$_jt_cache/jtreg"
+  _jt_dcache="$(jdk_build_root)/jtreg-deps"
+}
+jdk_jtreg_fetch() {
+  _jdk_jtreg_pins || return 1
+  # shellcheck disable=SC1091
+  . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
+  if [ ! -d "$_jt_src" ]; then
+    shipyard_fetch_pinned "https://github.com/openjdk/jtreg/archive/refs/tags/$_jt_tag.tar.gz" \
+      "$_jt_sha" "$_jt_cache" "$_jt_tag.tar.gz" >&2 || { echo "jdk_jtreg: could not fetch $_jt_tag" >&2; return 1; }
+  fi
+  mkdir -p "$_jt_dcache"
+  while read -r _jt_p _jt_s _jt_u; do
+    case "$_jt_p" in TAG=*|'') continue ;; esac
+    shipyard_fetch_verified "$_jt_u" "$_jt_s" "$_jt_dcache" "$_jt_s" >&2 || {
+      echo "jdk_jtreg: could not fetch $_jt_u ($_jt_p)" >&2; return 1; }
+  done < "$_jt_deps"
+}
+jdk_jtreg() {
+  [ $# -eq 1 ] && [ -x "$1/bin/java" ] || { echo "jdk_jtreg: usage: jdk_jtreg JDK_HOME (a JDK with bin/java)" >&2; return 1; }
+  _jdk_jtreg_pins || return 1
   if [ ! -x "$_jt_home/bin/jtreg" ]; then
-    if [ ! -d "$_jt_src" ]; then
-      # shellcheck disable=SC1091
-      . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
-      shipyard_fetch_pinned "https://github.com/openjdk/jtreg/archive/refs/tags/$_jt_tag.tar.gz" \
-        "$_jt_sha" "$_jt_cache" "$_jt_tag.tar.gz" >&2 || { echo "jdk_jtreg: could not fetch $_jt_tag" >&2; return 1; }
-    fi
+    jdk_jtreg_fetch || return 1
     [ -f "$_jt_src/make/build.sh" ] || { echo "jdk_jtreg: $_jt_tag.tar.gz has no $(basename "$_jt_src")/make/build.sh" >&2; return 1; }
-    (cd "$_jt_src" && JTREG_BUILD_NUMBER="${_jt_ver##*+}" JTREG_VERSION_STRING="$_jt_ver" bash make/build.sh --jdk "$1") >&2 || {
-      echo "jdk_jtreg: make/build.sh failed for $_jt_tag" >&2; return 1; }
+    while read -r _jt_p _jt_s _jt_u; do
+      case "$_jt_p" in TAG=*|'') continue ;; esac
+      mkdir -p "$(dirname "$_jt_src/build/deps/$_jt_p")" && cp "$_jt_dcache/$_jt_s" "$_jt_src/build/deps/$_jt_p" || {
+        echo "jdk_jtreg: could not place $_jt_p" >&2; return 1; }
+    done < "$_jt_deps"
+    _jt_no="$_jt_cache/no-download"
+    printf '#!/bin/sh\necho "jdk_jtreg: jtreg'"'"'s build.sh tried to download: $*; pin it in components/jtreg/deps (scripts/pin-jtreg-deps.sh)" >&2\nexit 1\n' > "$_jt_no"
+    chmod +x "$_jt_no"
+    # platform: build.sh takes WGET and CURL from the environment and, with --skip-download, downloads
+    #           only what is not already in build/deps; its SHA-1 checks still run
+    (cd "$_jt_src" && WGET="$_jt_no" CURL="$_jt_no" JTREG_BUILD_NUMBER="${_jt_ver##*+}" JTREG_VERSION_STRING="$_jt_ver" \
+      bash make/build.sh --jdk "$1" --skip-download) >&2 || { echo "jdk_jtreg: make/build.sh failed for $_jt_tag" >&2; return 1; }
     rm -rf "$_jt_home" && mv "$_jt_src/build/images/jtreg" "$_jt_home" || { echo "jdk_jtreg: no build/images/jtreg from $_jt_tag" >&2; return 1; }
   fi
   printf '%s\n' "$_jt_home"
