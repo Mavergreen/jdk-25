@@ -247,3 +247,10 @@ that every cited one is defined here). Each says what was decided, why, and what
   release's notes.
 - **R52** The upgrade leg of on-target acceptance installs the pinned previous release first; with
   none pinned yet, it says so and installs only this one.
+- **R53** configure's autoconf is a pinned build input: GNU autoconf (`components/autoconf/version`)
+  built on a pinned GNU m4 (`components/m4/version`), since autoconf needs m4 1.4.8 or later and
+  `/usr/bin/m4` is 1.4.6 on 10.9 and modern macOS alike. Both are fetched with shipyard's
+  `shipyard_fetch_pinned`, built with `/usr/bin/clang` and `/usr/bin/perl` into the build root, and
+  handed to configure as `AUTOCONF`, so no host's own autoconf (pkgsrc's) decides the generated
+  configure. Cost: about a minute on a build root's first build; a native 10.9 build needs
+  `/usr/bin/clang` (the Command Line Tools), as `BUILD_CC` already does.

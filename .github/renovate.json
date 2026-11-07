@@ -114,6 +114,36 @@
       "depNameTemplate": "Mavergreen/jdk-25",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:\\.(?<build>\\d+))?-mavericks\\.(?<revision>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "GNU autoconf, which the jdk source's configure runs to generate itself: a build input only, nothing of it ships. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it on the pinned GNU m4. Renovate reads releases from Savannah's git tags (vX.Y, never the vX.Yz betas) but cannot hash the tarball: the PR must write SHA256 before it merges; until then the fetch refuses the stale pin.",
+      "managerFilePatterns": [
+        "/^components/autoconf/version$/"
+      ],
+      "matchStrings": [
+        "VERSION=(?<currentValue>\\d[^\\s]*)\\s+SHA256=[0-9a-f]{64}"
+      ],
+      "depNameTemplate": "gnu-autoconf",
+      "packageNameTemplate": "https://git.savannah.gnu.org/git/autoconf.git",
+      "datasourceTemplate": "git-tags",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+(?:\\.\\d+)?)$",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?$"
+    },
+    {
+      "customType": "regex",
+      "description": "GNU m4, which the pinned autoconf runs (it needs 1.4.8 or later; /usr/bin/m4 is 1.4.6 on Mac OS X 10.9 and on modern macOS): a build input only, nothing of it ships. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it. Renovate reads releases from Savannah's git tags (vX.Y.Z, never the betas) but cannot hash the tarball: the PR must write SHA256 before it merges.",
+      "managerFilePatterns": [
+        "/^components/m4/version$/"
+      ],
+      "matchStrings": [
+        "VERSION=(?<currentValue>\\d[^\\s]*)\\s+SHA256=[0-9a-f]{64}"
+      ],
+      "depNameTemplate": "gnu-m4",
+      "packageNameTemplate": "https://git.savannah.gnu.org/git/m4.git",
+      "datasourceTemplate": "git-tags",
+      "extractVersionTemplate": "^v(?<version>\\d+\\.\\d+(?:\\.\\d+)?)$",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?$"
     }
   ],
   "packageRules": [
@@ -143,6 +173,17 @@
       "automerge": false,
       "prBodyNotes": [
         "**Merge only to match jdk25u:** take this bump only when the pinned jdk25u's `make/conf/github-actions.conf` names this `JTREG_VERSION`; otherwise close it. **The tarball pin:** write `SHA256` in `components/jtreg/version` on this branch: `curl -sSfL https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz | shasum -a 256`, then run `sh tests/jtreg.sh` on Mac OS X 10.9 against the current image (INGREDIENTS.md)."
+      ]
+    },
+    {
+      "description": "GNU autoconf and m4 tarball SHA-256s are written by hand on the PR, so their bumps never automerge.",
+      "matchDepNames": [
+        "gnu-autoconf",
+        "gnu-m4"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "**The tarball pin:** write `SHA256` in this `components/<autoconf|m4>/version` on this branch: `curl -sSfL https://ftp.gnu.org/gnu/<name>/<name>-<VERSION>.tar.gz | shasum -a 256`, checking it against GNU's `.sig` beside it. Then `sh tests/autoconf-test.sh` and a build (INGREDIENTS.md)."
       ]
     }
   ]

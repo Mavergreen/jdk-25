@@ -21,6 +21,12 @@
 #          JDK_HOME; build.sh fetches jtreg's dependencies itself and verifies each against the checksum
 #          its make/build-support/version-numbers pins. A test tool only: nothing of it ships; the pin is
 #          the jtreg the pinned jdk25u's CI runs, which tests/jtreg.sh checks.
+#          jdk_autoconf prints the GNU autoconf components/autoconf/version pins (VERSION, and the SHA256
+#          of its release tarball), built on the GNU m4 components/m4/version pins the same way, both
+#          fetched with shipyard_fetch_pinned and built with /usr/bin/clang (the host's, as BUILD_CC) and
+#          /usr/bin/perl into one prefix under the build root, never installed: OpenJDK's configure runs
+#          autoconf to generate itself, and autoconf needs a GNU m4 newer than the 1.4.6 in /usr/bin on
+#          Mac OS X 10.9 and on a modern Mac alike.
 #          jdk_ca_certs prints the directory of trusted roots, one PEM per file, in the family ca-certs
 #          release components/ca-certs/version pins, extracted under the build root on every host. Those
 #          files are the roots of its ca-certificates.crt bundle, which configure's --with-cacerts-src
@@ -171,4 +177,46 @@ jdk_ca_certs() {
   _cc_t="$_cc_d/share/ca-certs/trusted"
   ls "$_cc_t"/*.pem >/dev/null 2>&1 || { echo "jdk_ca_certs: ca-certs $_cc_v has no share/ca-certs/trusted/*.pem" >&2; return 1; }
   printf '%s\n' "$_cc_t"
+}
+
+# spec: PORT.md ruling R53 -- configure's autoconf is a pinned, fetched build input, not whatever a host
+#       happens to have on PATH
+jdk_autoconf() {
+  _ac_v="$(sed -n 's/^VERSION=//p' "$MAVERICKS_ROOT/components/autoconf/version" | tr -d '[:space:]')"
+  _ac_sha="$(sed -n 's/^SHA256=//p' "$MAVERICKS_ROOT/components/autoconf/version" | tr -d '[:space:]')"
+  _m4_v="$(sed -n 's/^VERSION=//p' "$MAVERICKS_ROOT/components/m4/version" | tr -d '[:space:]')"
+  _m4_sha="$(sed -n 's/^SHA256=//p' "$MAVERICKS_ROOT/components/m4/version" | tr -d '[:space:]')"
+  [ -n "$_ac_v" ] && [ -n "$_ac_sha" ] && [ -n "$_m4_v" ] && [ -n "$_m4_sha" ] || {
+    echo "jdk_autoconf: components/autoconf/version and components/m4/version need VERSION and SHA256" >&2; return 1; }
+  [ -x /usr/bin/clang ] && [ -x /usr/bin/perl ] || {
+    echo "jdk_autoconf: building GNU m4 and autoconf needs /usr/bin/clang and /usr/bin/perl" >&2; return 1; }
+  _ac_root="$(jdk_build_root)/toolchain"
+  _ac_pre="$_ac_root/autoconf-$_ac_v-$(printf '%s' "$_ac_sha" | cut -c1-12)-m4-$_m4_v-$(printf '%s' "$_m4_sha" | cut -c1-12)"
+  if [ ! -f "$_ac_pre/.complete" ]; then
+    # shellcheck disable=SC1091
+    . "$SHIPYARD_SCRIPTS/mavericks_fetch.sh"
+    mkdir -p "$_ac_root/src"
+    for _ac_p in "m4 $_m4_v $_m4_sha" "autoconf $_ac_v $_ac_sha"; do
+      set -- $_ac_p
+      [ -d "$_ac_root/src/$1-$2" ] && continue
+      shipyard_fetch_pinned "https://ftp.gnu.org/gnu/$1/$1-$2.tar.gz" "$3" "$_ac_root/src" "$1-$2.tar.gz" >&2 \
+        || { echo "jdk_autoconf: could not fetch $1-$2.tar.gz" >&2; return 1; }
+    done
+    rm -rf "$_ac_pre" "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
+    mkdir -p "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
+    _ac_jobs="$(sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+    # platform: jdk_toolchain exports CC, SDKROOT and MACOSX_DEPLOYMENT_TARGET for the x86_64 10.9 target;
+    #           these tools run on the build host, so each build starts from none of them.
+    ( unset CC CXX CPP CFLAGS CXXFLAGS CPPFLAGS LDFLAGS SDKROOT MACOSX_DEPLOYMENT_TARGET M4 AUTOCONF AUTOM4TE
+      cd "$_ac_root/build-m4-$_m4_v" \
+        && "$_ac_root/src/m4-$_m4_v/configure" --prefix="$_ac_pre" --disable-nls CC=/usr/bin/clang \
+        && make -j"$_ac_jobs" && make install \
+        && cd "$_ac_root/build-autoconf-$_ac_v" \
+        && "$_ac_root/src/autoconf-$_ac_v/configure" --prefix="$_ac_pre" M4="$_ac_pre/bin/m4" PERL=/usr/bin/perl \
+        && make && make install ) >&2 || { echo "jdk_autoconf: building GNU m4 $_m4_v and autoconf $_ac_v failed" >&2; return 1; }
+    rm -rf "$_ac_root/build-m4-$_m4_v" "$_ac_root/build-autoconf-$_ac_v"
+    [ -x "$_ac_pre/bin/autoconf" ] && [ -x "$_ac_pre/bin/m4" ] || { echo "jdk_autoconf: no bin/autoconf or bin/m4 in $_ac_pre" >&2; return 1; }
+    : > "$_ac_pre/.complete"
+  fi
+  printf '%s\n' "$_ac_pre/bin/autoconf"
 }
