@@ -1,0 +1,18 @@
+name: repackage-on-ingredient-bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - components/ca-certs/version
+      - components/clang22/version
+      - components/pandoc/version
+      - components/recaulk/version
+
+jobs:
+  repackage:
+    permissions:
+      actions: write
+    uses: Mavergreen/shipyard/.github/workflows/repackage-on-ingredient-bump.yml@v1
+    with:
+      own-upstream-paths: components/jdk/version

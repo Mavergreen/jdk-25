@@ -1,0 +1,322 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      local_release:
+        description: "Cut a -mavericks.(N+1) repackage of the current upstream"
+        type: boolean
+        default: false
+      reconcile:
+        description: "Set by the nightly reconcile backstop"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# spec: shipyard SKILL.md "Release workflow" -- a run that can publish is alone in its group
+concurrency:
+  group: >-
+    release-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ver:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.full }}
+      publish: ${{ steps.ver.outputs.release }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - id: ver
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LOCAL_RELEASE: ${{ inputs.local_release }}
+          RECONCILE: ${{ inputs.reconcile }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          effective_local_release="$LOCAL_RELEASE"
+          [ "$RECONCILE" = true ] && effective_local_release=true
+          mode="$(LOCAL_RELEASE="$effective_local_release" sh "$SHIPYARD_SCRIPTS/release-mode.sh")"
+          out="$(sh build/version.sh "$mode")"
+          full="$(printf '%s\n' "$out" | sed -n 's/^FULL=//p')"
+          rel="$(printf '%s\n' "$out" | sed -n 's/^RELEASE=//p')"
+          [ -n "$full" ] || { echo "::error::version.sh gave no FULL= line: $out"; exit 1; }
+          [ "$GITHUB_REF_NAME" = main ] || rel=no
+          # spec: shipyard SKILL.md "A release is a declared state, not an event" -- a reconcile
+          #       dispatch cuts N+1, so it publishes only while no release carries this tree's state;
+          #       a human local_release=true dispatch stays ungated, since choosing it is the decision
+          if [ "$rel" = yes ] && [ "$RECONCILE" = true ]; then
+            digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+            answer="$(sh "$SHIPYARD_SCRIPTS/release-needed.sh" --digest "$digest" --version "$full")"
+            echo "reconcile: release-needed.sh says $answer"
+            case "$answer" in
+              PUBLISH) : ;;
+              *) rel=no ;;
+            esac
+          fi
+          { echo "full=$full"; echo "release=$rel"; } >> "$GITHUB_OUTPUT"
+          echo "version=$full publish=$rel"
+
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: REF and DIGEST are the build tag and commit of the pinned GA tag
+        run: sh scripts/resolve-ga.sh --check
+      - name: The jtreg pin is the jtreg the pinned source's own CI runs (vm-test's gate refuses any other)
+        run: sh scripts/check-jtreg-pin.sh
+      - name: The pinned tarball is the pinned commit's tree, file for file, and its SHA-256 is TARBALL_SHA256
+        run: sh scripts/pin-source-tarballs.sh --check
+
+  tests:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Ingredient pins are well declared
+        run: sh "$SHIPYARD_SCRIPTS/check-ingredient-pins.sh"
+      - name: The repo's tests
+        run: sh "$SHIPYARD_SCRIPTS/run-repo-tests.sh"
+      - name: The tests must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  build:
+    needs: [ver, source]
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "${{ needs.ver.outputs.version }}" > VERSION
+      - name: Record the pre-build tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - name: Cross-build the x86_64 Mac OS X 10.9 JDK image and its jtreg test natives
+        run: sh build/build-jdk.sh
+      - name: The image's static checks (its runtime half runs on-target, in vm-test)
+        run: |
+          set -eu
+          rc=0
+          JDK_BUILD=1 sh tests/build-jdk-test.sh > "$RUNNER_TEMP/build-jdk-test.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/build-jdk-test.log"
+          [ "$rc" -eq 77 ] && grep -q '^ok static: ' "$RUNNER_TEMP/build-jdk-test.log" \
+            || { echo "::error::wanted the static checks to pass and the runtime half to skip (exit 77), got exit $rc"; exit 1; }
+      - name: Build the pinned jtreg, which vm-test's guest runs (10.9's curl cannot fetch its dependencies)
+        run: |
+          set -eu
+          home="$(. build/toolchain.sh && jdk_jtreg "$(jdk_boot_jdk)")"
+          COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/jtreg.tar.gz" -C "$home" .
+      - name: Pack the image, its build-info and its test natives
+        run: |
+          set -eu
+          root="$MAVERICKS_BUILD_ROOT/jdk-25"
+          COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/image.tar.gz" -C "$root" image build-info.txt
+          COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/test-natives.tar.gz" -C "$root" test-natives
+      - uses: actions/upload-artifact@v7
+        with: { name: image, path: "${{ runner.temp }}/image.tar.gz", retention-days: 7 }
+      # spec: PORT.md ruling R29 -- the test natives feed
+      #       vm-test's jtreg gate and never ship in the pkg
+      - uses: actions/upload-artifact@v7
+        with: { name: test-natives, path: "${{ runner.temp }}/test-natives.tar.gz", retention-days: 7 }
+      - uses: actions/upload-artifact@v7
+        with: { name: jtreg, path: "${{ runner.temp }}/jtreg.tar.gz", retention-days: 7 }
+      - name: The build must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  package:
+    needs: [ver, build]
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      V: ${{ needs.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0, persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - name: Build out of tree
+        run: |
+          echo "MAVERICKS_BUILD_ROOT=$RUNNER_TEMP/mm-build" >> "$GITHUB_ENV"
+          echo "DIST=$RUNNER_TEMP/dist" >> "$GITHUB_ENV"
+      - name: Pin the version the ver job resolved
+        run: printf '%s\n' "$V" > VERSION
+      - name: Record the pre-package tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh" --record
+      - uses: actions/download-artifact@v8
+        with: { name: image, path: "${{ runner.temp }}/in" }
+      - name: Unpack the image where build-jdk.sh leaves it
+        run: |
+          set -eu
+          mkdir -p "$MAVERICKS_BUILD_ROOT/jdk-25"
+          tar -xzf "$RUNNER_TEMP/in/image.tar.gz" -C "$MAVERICKS_BUILD_ROOT/jdk-25"
+      - name: Build the x86_64 Sparkle updater
+        run: sh build/build-updater.sh --out "$MAVERICKS_BUILD_ROOT/jdk25-updater.app"
+      - name: Package
+        run: |
+          set -eu
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"; export SOURCE_DATE_EPOCH
+          sh build/package-pkg.sh --updater-app "$MAVERICKS_BUILD_ROOT/jdk25-updater.app" --version "$V" --out "$DIST"
+      - name: The real pkg, expanded and its postinstall run, on this arm64 Mac
+        run: JDK_PACKAGE_REAL=1 JDK_UPDATER_APP="$MAVERICKS_BUILD_ROOT/jdk25-updater.app" sh tests/package-manifest-test.sh
+      - name: Release notes
+        run: |
+          set -eu
+          sh "$SHIPYARD_SCRIPTS/release-notes.sh" --tag "$V" --version "$V" --product JDK \
+            --min-os 10.9.5 --out "$DIST/RELEASE_NOTES.md"
+      - name: Record the declared state in the notes
+        run: |
+          set -eu
+          digest="$(sh "$SHIPYARD_SCRIPTS/release-state.sh")"
+          sh "$SHIPYARD_SCRIPTS/release-state-record.sh" --notes-file "$DIST/RELEASE_NOTES.md" --digest "$digest"
+      - name: Sign the pkg and write its feed
+        if: needs.ver.outputs.publish == 'yes'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          printenv SPARKLE_PRIVATE_KEY | grep -q . || { echo "::error::SPARKLE_PRIVATE_KEY is not visible to this repo"; exit 1; }
+          sh "$SHIPYARD_SCRIPTS/sign_and_appcast.sh" --product jdk25 --feed-dir "$DIST" \
+            --channel-title "JDK 25 for Mavericks" --version "$V" \
+            --pkg-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/$V/jdk-$V.pkg" \
+            --notes-file "$DIST/RELEASE_NOTES.md" --pkg "$DIST/jdk-$V.pkg" --min-os 10.9.5
+      - name: Unsigned stand-in feed (never published)
+        if: needs.ver.outputs.publish != 'yes'
+        run: sh "$SHIPYARD_SCRIPTS/stand-in-feeds.sh" "$DIST" "$V"
+      - name: Artifact conformance
+        run: |
+          set -eu
+          facts="$(sh "$SHIPYARD_SCRIPTS/artifact-facts.sh" "$DIST" "$V")"
+          printf '%s\n' "$facts" | sh "$SHIPYARD_SCRIPTS/check-artifact-conformance.sh"
+      - name: The feed is an upgrade on this line
+        if: needs.ver.outputs.publish == 'yes'
+        run: sh "$SHIPYARD_SCRIPTS/assert_appcast_upgradeable.sh" --appcast "$DIST/jdk25.xml" --version "$V" --upstream-glob '25.*'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mavergreen-jdk-25
+          path: |
+            ${{ runner.temp }}/dist/*.pkg
+            ${{ runner.temp }}/dist/build-info-*.txt
+            ${{ runner.temp }}/dist/*.xml
+            ${{ runner.temp }}/dist/RELEASE_NOTES.md
+      - name: The packaging must not have written into the source tree
+        run: sh "$SHIPYARD_SCRIPTS/assert-tree-clean.sh"
+
+  # spec: PORT.md ruling R50 -- the jtreg subset takes
+  #       about 75 minutes on 12 cores at -conc:6, so about 70 (hotspot) and 160 (jdk) at the guest's
+  #       -conc:2 on 4 cores; one guest per root keeps each inside its timeout, which leaves the jdk root
+  #       about 2 hours for boot, the workspace copy and an emulated guest running slower than the box
+  vm-test:
+    needs: [ver, build, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        root: [hotspot, jdk]
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - uses: Mavergreen/shipyard/.github/actions/install@v1
+      - uses: actions/download-artifact@v8
+        with: { name: mavergreen-jdk-25, path: dist }
+      - uses: actions/download-artifact@v8
+        with: { pattern: '{test-natives,jtreg}', path: "${{ runner.temp }}/in" }
+      - name: Bring the test natives, the pinned jtreg and the pinned source's tests into the workspace the guest gets
+        run: |
+          set -eu
+          tar -xzf "$RUNNER_TEMP/in/test-natives/test-natives.tar.gz"
+          mkdir jtreg && tar -xzf "$RUNNER_TEMP/in/jtreg/jtreg.tar.gz" -C jtreg
+          sh build/fetch-jdk.sh jtreg-src
+          ls dist test-natives jtreg
+      - name: Install the pkg on Mac OS X 10.9, smoke it, and run the ${{ matrix.root }} jtreg subset against the installed JDK
+        uses: Mavergreen/mavericks-vm@v1
+        env:
+          JDK_VERSION: ${{ needs.ver.outputs.version }}
+          JTREG_ROOTS: ${{ matrix.root }}
+        with:
+          image-key: ${{ secrets.MAVERICKS_VM_KEY }}
+          envs: JDK_VERSION JTREG_ROOTS
+          # platform: python-315's guest booted at 2 and 4 cores and never got past OpenCore at 3
+          #           (its run 40438516884), and zig's runs at 4; python-315's overload at 4 came from
+          #           regrtest's -j0 (5 workers on 4 cores), where jtreg here runs -conc:2 on 4
+          cpu: '4'
+          mem: '8192'
+          run: |
+            sw_vers
+            s=0
+            sudo -n true || { echo "the guest's user cannot sudo without a password, and installer needs root"; s=1; }
+            if [ "$s" -eq 0 ]; then
+              SMOKE_OUT="$PWD" sh tests/smoke-mavericks.sh "dist/jdk-$JDK_VERSION.pkg" || s=$?
+              [ "$s" -eq 0 ] || { echo "tests/smoke-mavericks.sh exited $s (77, a skip, is a failure here)"; s=1; }
+            fi
+            if [ "$s" -eq 0 ]; then
+              JTREG_HOME="$PWD/jtreg" JTREG_SRC="$PWD/jtreg-src" JTREG_WORK="$PWD/jtreg-work" JTREG_CONC=2 \
+                JTREG_NATIVEPATH="$PWD/test-natives" JTREG_ROOTS="$JTREG_ROOTS" \
+                sh tests/jtreg.sh /usr/local/mavergreen/jdk25 tests/known-failures/x86_64-10.9.txt || s=$?
+            fi
+            # platform: mavericks-vm's copyback (true by default) copies the whole workspace back from the guest; the source is about 1 GB and none of it is a result
+            rm -rf jtreg-src
+            exit "$s"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: vm-test-${{ matrix.root }}-logs
+          path: |
+            integration-probe.log
+            jtreg-work/*/jtreg.log
+            jtreg-work/*/report
+          retention-days: 14
+
+  scan:
+    needs: [ver, package]
+    if: always() && needs.ver.outputs.publish == 'yes'
+    permissions: { actions: read, contents: read }
+    uses: Mavergreen/shipyard/.github/workflows/scan-for-key.yml@v1
+    with: { artifact: mavergreen-jdk-25 }
+    secrets: { SPARKLE_PRIVATE_KEY: "${{ secrets.SPARKLE_PRIVATE_KEY }}" }
+
+  publish:
+    needs: [ver, source, tests, build, package, vm-test, scan]
+    if: needs.ver.outputs.publish == 'yes'
+    permissions: { contents: write }
+    uses: Mavergreen/shipyard/.github/workflows/publish-release.yml@v1
+    with: { version: "${{ needs.ver.outputs.version }}", artifact: mavergreen-jdk-25 }
+
+  retry:
+    needs: [ver, publish]
+    if: always() && needs.publish.result == 'failure'
+    permissions: { contents: read, actions: write }
+    uses: Mavergreen/shipyard/.github/workflows/retry-release.yml@v1
+    with: { version: "${{ needs.ver.outputs.version }}" }
+
+  required:
+    name: required (release)
+    if: always()
+    needs: [ver, source, tests, build, package, vm-test, scan, publish, retry]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Mavergreen/shipyard/.github/actions/required-gate@v1
+        with: { needs: "${{ toJSON(needs) }}" }

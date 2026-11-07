@@ -1,0 +1,76 @@
+name: pins-bot
+
+# spec: tests/pins-bot-test.sh and INGREDIENTS.md -- this repo's own design: the push uses a pins-bot App token and no dispatch (reasons in that test's FAIL messages)
+#       A JDK bump's Renovate PR moves GA alone, a jdk25u -ga tag (ruling R46: never an EA build tag);
+#       REF and DIGEST (the build tag and commit GA names) and TARBALL_SHA256 are the pins Renovate cannot
+#       compute (INGREDIENTS.md), so this fills them on Renovate's own branch, in two jobs:
+#       pins (contents: read) reads upstream's bytes, never beside a token that can write; push touches
+#       none, and writes with the pins-bot App's token (contents: write alone), so the push starts
+#       release.yml like any push. Narrowing release.yml's own permissions is release.yml's work.
+
+on:
+  push:
+    branches: ['renovate/**']
+
+permissions: {}
+
+concurrency:
+  group: pins-bot-${{ github.ref }}${{ github.actor == 'mavergreen-pins-bot[bot]' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+jobs:
+  pins:
+    if: github.actor != 'mavergreen-pins-bot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pins: ${{ steps.pin.outputs.pins }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # this job pushes nothing; its token stays out of .git/config
+
+      - name: Install mavericks-shipyard
+        uses: Mavergreen/shipyard/.github/actions/install@v1
+
+      - name: The source pins GA names, if GA moved and they are stale
+        id: pin
+        run: |
+          set -eu
+          pins="$(sh scripts/pins-bot.sh fill origin/main)"
+          echo "pins=$pins" >> "$GITHUB_OUTPUT"
+
+  push:
+    needs: pins
+    if: needs.pins.outputs.pins != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: A pins-bot App token, contents write on this repository alone
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PINS_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.PINS_BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Commit the pins to the branch, as the App, which starts release.yml on its new head
+        env:
+          PINS: ${{ needs.pins.outputs.pins }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -eu
+          # shellcheck disable=SC2086  # up to three KEY=VALUE words; pins-bot.sh refuses any other shape
+          applied="$(sh scripts/pins-bot.sh apply $PINS)"
+          [ "$applied" = changed ] || { echo "components/jdk/version already holds it"; exit 0; }
+          git -c user.name='mavergreen-pins-bot[bot]' -c user.email='342268518+mavergreen-pins-bot[bot]@users.noreply.github.com' \
+            commit -q -m 'chore(pins): the build tag, commit and tarball SHA-256 of the moved GA tag' \
+            -m 'Written by .github/workflows/pins-bot.yml: its pins job found REF and DIGEST from GA with git ls-remote, and checked, with git, that the tarball is its commit'"'"'s tree.' components/jdk/version
+          git push origin "HEAD:refs/heads/$BRANCH"

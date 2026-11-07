@@ -1,0 +1,17 @@
+name: reconcile
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  reconcile:
+    permissions:
+      contents: read
+      actions: write
+    uses: Mavergreen/shipyard/.github/workflows/reconcile.yml@v1

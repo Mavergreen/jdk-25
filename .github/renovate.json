@@ -1,0 +1,149 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>Mavergreen/shipyard"
+  ],
+  "gitIgnoredAuthors": [
+    "342268518+mavergreen-pins-bot[bot]@users.noreply.github.com",
+    "41898282+github-actions[bot]@users.noreply.github.com"
+  ],
+  "customManagers": [
+    {
+      "description": "The OpenJDK 25 source (own upstream), moved as GA alone: a jdk25u GA tag, jdk-25.X.Y[.Z[.W]]-ga, which also names CA respins such as jdk-25.0.5.0.3-ga, and never an EA build (ruling R46). .github/workflows/pins-bot.yml then fills REF and DIGEST (scripts/resolve-ga.sh: the build tag and commit GA names) and TARBALL_SHA256 on the PR's branch; until it has, build/derive-upstream-version.sh refuses to give a version and every build stops. UPSTREAM_VERSION is derived from REF, not managed here.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^components\\/jdk\\/version$/"
+      ],
+      "matchStrings": [
+        "REPO=https://github\\.com/(?<depName>[^\\s/]+/[^\\s/]+)\\nGA=(?<currentValue>jdk-25[^\\s]*-ga)\\n"
+      ],
+      "packageNameTemplate": "{{{depName}}}",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "regex:^jdk-25\\.(?<major>\\d+)\\.(?<minor>\\d+)(?:\\.(?<patch>\\d+))?(?:\\.(?<build>\\d+))?-ga$",
+      "extractVersionTemplate": "^(?<version>jdk-25\\.\\d+\\.\\d+(?:\\.\\d+){0,2}-ga)$"
+    },
+    {
+      "customType": "regex",
+      "description": "clang22, the compiler every build uses; a bump rebuilds and releases.",
+      "managerFilePatterns": [
+        "/^components/clang22/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
+      "depNameTemplate": "Mavergreen/clang-22",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-mavericks\\.(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "ca-certs, the family's CA roots: lib/security/cacerts is built from its release's trusted roots, so a bump ships new roots and releases.",
+      "managerFilePatterns": [
+        "/^components/ca-certs/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
+      "depNameTemplate": "Mavergreen/ca-certs",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-mavericks\\.(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "longboat, CI only: installed-arm64 installs it because clang22-cross's preinstall requires it. Nothing of it ships, so a bump re-runs CI and releases nothing.",
+      "managerFilePatterns": [
+        "/^components/longboat/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\S+)\\s*$"
+      ],
+      "depNameTemplate": "Mavergreen/longboat",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d{8})\\.(?<minor>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The boot JDK (Temurin 25 GA, macOS aarch64 tar.gz): a build input only, nothing of it ships. TAG and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh derives the download URL from TAG.",
+      "managerFilePatterns": [
+        "/^components/bootjdk/version$/"
+      ],
+      "matchStrings": [
+        "TAG=(?<currentValue>jdk-25[^\\s]*)\\s+SHA256=(?<currentDigest>[0-9a-f]{64})"
+      ],
+      "depNameTemplate": "temurin25-binaries",
+      "packageNameTemplate": "adoptium/temurin25-binaries",
+      "datasourceTemplate": "github-release-attachments",
+      "versioningTemplate": "regex:^jdk-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:\\.(?<build>\\d+))?\\+(?<revision>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "pandoc (macOS arm64 zip), which configure uses to make the man pages: a build input only, nothing of it ships. VERSION and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh's jdk_pandoc derives the download URL from VERSION.",
+      "managerFilePatterns": [
+        "/^components/pandoc/version$/"
+      ],
+      "matchStrings": [
+        "VERSION=(?<currentValue>\\d[^\\s]*)\\s+SHA256=(?<currentDigest>[0-9a-f]{64})"
+      ],
+      "depNameTemplate": "pandoc",
+      "packageNameTemplate": "jgm/pandoc",
+      "datasourceTemplate": "github-release-attachments",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "description": "jtreg, the OpenJDK test harness tests/jtreg.sh runs the conformance subset with: a test tool only, nothing of it ships. jtreg publishes no binaries, so build/toolchain.sh's jdk_jtreg builds GitHub's tarball of TAG, verified by SHA256. Renovate moves TAG but cannot hash the tarball: the PR must write SHA256 (shasum -a 256 of https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz) before it merges; until then the fetch refuses the stale pin.",
+      "managerFilePatterns": [
+        "/^components/jtreg/version$/"
+      ],
+      "matchStrings": [
+        "TAG=(?<currentValue>jtreg-[^\\s]+)\\s+SHA256=[0-9a-f]{64}"
+      ],
+      "depNameTemplate": "openjdk/jtreg",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "regex:^jtreg-(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?\\+(?<build>\\d+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "The previous jdk-25 release, which tests/smoke-mavericks.sh installs before the candidate for its upgrade leg: a test input only, nothing of it ships. It reads 'none' until the first release exists; the regex matches only a version, so Renovate proposes nothing until a maintainer writes the first release's tag here, and then moves it to each newer release.",
+      "managerFilePatterns": [
+        "/^components/previous-release/version$/"
+      ],
+      "matchStrings": [
+        "^(?<currentValue>\\d\\S*)\\s*$"
+      ],
+      "depNameTemplate": "Mavergreen/jdk-25",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)(?:\\.(?<build>\\d+))?-mavericks\\.(?<revision>\\d+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Only jdk25u GA tags of the 25 update train (jdk-25.X.Y[.Z[.W]]-ga, five parts for a CA respin such as 25.0.5.0.3) are proposed; build tags (jdk-25.X.Y+N, which include every EA build) and the next release's tags are not (ruling R46). REF, DIGEST and the tarball pin are filled by .github/workflows/pins-bot.yml on the PR's branch.",
+      "matchDepNames": [
+        "openjdk/jdk25u"
+      ],
+      "allowedVersions": "/^jdk-25\\.\\d+\\.\\d+(\\.\\d+){0,2}-ga$/",
+      "prBodyNotes": [
+        "**The source pins:** `.github/workflows/pins-bot.yml` writes `REF`, `DIGEST` (`scripts/resolve-ga.sh`) and `TARBALL_SHA256` in `components/jdk/version` on this branch. Until it has, every build stops at `build/derive-upstream-version.sh`. If the bot failed, run `sh scripts/resolve-ga.sh && sh scripts/pin-source-tarballs.sh` on this branch and push the file (INGREDIENTS.md).",
+        "**The jtreg pin:** a jdk25u bump whose `make/conf/github-actions.conf` names another `JTREG_VERSION` fails `release.yml`'s `source` job (`scripts/check-jtreg-pin.sh`) until `components/jtreg/version` moves with it: `TAG=jtreg-<that version>` and the `SHA256` of `https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz`, on this branch."
+      ]
+    },
+    {
+      "description": "The boot JDK stays on Temurin 25 GA tags (jdk-25.X.Y[.Z]+N); the 26 train and early-access builds are never proposed. A build input, so a bump releases nothing by itself.",
+      "matchDepNames": [
+        "temurin25-binaries"
+      ],
+      "allowedVersions": "<26"
+    },
+    {
+      "description": "jtreg is pinned to the version the pinned jdk25u's own CI runs (JTREG_VERSION in its make/conf/github-actions.conf), since a newer jtreg changes what its tests see (StackWalkTest counts jtreg's own frames); and its tarball SHA-256 is written by hand on the PR. So a jtreg bump never automerges.",
+      "matchDepNames": [
+        "openjdk/jtreg"
+      ],
+      "automerge": false,
+      "prBodyNotes": [
+        "**Merge only to match jdk25u:** take this bump only when the pinned jdk25u's `make/conf/github-actions.conf` names this `JTREG_VERSION`; otherwise close it. **The tarball pin:** write `SHA256` in `components/jtreg/version` on this branch: `curl -sSfL https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz | shasum -a 256`, then run `sh tests/jtreg.sh` on Mac OS X 10.9 against the current image (INGREDIENTS.md)."
+      ]
+    }
+  ]
+}

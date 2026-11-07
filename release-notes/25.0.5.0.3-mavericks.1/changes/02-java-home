@@ -1,0 +1,1 @@
+Mac OS X lists it as Mavericks JDK 25, so /usr/libexec/java_home -v 25 and /usr/bin/java find it.
