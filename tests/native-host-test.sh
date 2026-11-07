@@ -6,7 +6,8 @@
 #   /usr/local/mavergreen/jdk25, refused, naming it, when its bin/java is missing; jdk_boot_jdk_id HOME is
 #   jdk25-<its release's JAVA_RUNTIME_VERSION> there and components/bootjdk/version's TAG elsewhere; and
 #   jdk_toolchain's clang22 is the installed /usr/local/mavergreen/clang22, refused, naming it, when
-#   absent. On a real 10.9 with both installed, the installed ones are what it gets.
+#   absent. On a real 10.9 with both installed, the installed ones are what it gets; elsewhere the installed
+#   jdk25 is never run (PORT.md ruling R18): jdk_boot_jdk runs its java -version.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -41,8 +42,11 @@ if ! onhost 'jdk_host_is_109'; then
 fi
 
 if [ -x /usr/local/mavergreen/jdk25/bin/java ]; then
-  got="$(in109 'jdk_boot_jdk')" || fail "jdk_boot_jdk refused the installed jdk25 on 10.9"
-  [ "$got" = /usr/local/mavergreen/jdk25 ] || fail "jdk_boot_jdk on 10.9 printed '$got'"
+  # spec: PORT.md ruling R18 -- jdk_boot_jdk runs the installed x86_64 java -version, so only on a real 10.9
+  if onhost 'jdk_host_is_109'; then
+    got="$(onhost 'jdk_boot_jdk')" || fail "jdk_boot_jdk refused the installed jdk25 on this 10.9"
+    [ "$got" = /usr/local/mavergreen/jdk25 ] || fail "jdk_boot_jdk on 10.9 printed '$got'"
+  fi
 else
   if in109 'jdk_boot_jdk' > "$t/o" 2>&1; then fail "jdk_boot_jdk on 10.9 succeeded with no jdk25 installed: $(cat "$t/o")"; fi
   grep -q '/usr/local/mavergreen/jdk25' "$t/o" || fail "jdk_boot_jdk's refusal does not name /usr/local/mavergreen/jdk25: $(cat "$t/o")"

@@ -75,9 +75,9 @@ export AUTOCONF
 #       upstream's list; GenerateCacerts makes one entry per file, aliased "<file name> [jdk]".
 cacerts="$(jdk_ca_certs)" || die "jdk_ca_certs failed"
 target="$(jdk_target_args)"
-# spec: PORT.md ruling R55 -- configure cannot make the default CDS archive in a cross build and would in
-#       a native one, so --disable-cds-archive keeps the two images alike; the pkg's postinstall writes
-#       the archive on the installed JDK either way.
+# spec: PORT.md rulings R28 and R55 -- the image ships no default CDS archive and the pkg's postinstall
+#       writes it (R28); a cross build cannot make one and a native one would, so --disable-cds-archive
+#       keeps the two images alike (R55).
 out="$root/build"
 rm -rf "$out"; mkdir -p "$out"
 (cd "$out" && bash "$src/configure" \

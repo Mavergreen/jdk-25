@@ -70,14 +70,19 @@ It exits 0 when all of these hold:
 
 - the two `build-info.txt` files agree on every key both have;
 - both images pass the compat guard, including the Mach-O inside the jmods;
-- the files in each image, and the entries in each jmod, are the same.
+- the files in each image, and the entries in each jmod, jar and zip, are the same;
+- each of those files and entries has the same bytes, apart from the exceptions below.
+
+An archive's own bytes aren't compared, only its entries, because configure stamps the entries with
+its own time.
 
 Some differences are expected and don't fail the run:
 
 - **Mach-O bytes:** reported as `Mach-O differs`.
-- **Other files' bytes:** reported as `differs (not Mach-O)`. These follow from Mach-O differences:
-  the jmods' module hashes cover their natives.
+- **What records Mach-O hashes:** `lib/modules` and `java.base`'s `module-info.class` (ModuleHashes).
+  These are excused only when a Mach-O differs, and reported as `excused (records Mach-O hashes)`.
 - **Differences by design (R55):** `host`, `bootjdk`, and the man pages of a `pandoc=none` build. Each
   is reported as `excused`.
 
-Anything else is a finding to fix before the native build is trusted.
+Any other byte difference is reported as `differs (not Mach-O)` and fails the run. Each failure is a
+finding to fix before the native build is trusted.

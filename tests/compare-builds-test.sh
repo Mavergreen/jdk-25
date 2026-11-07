@@ -1,12 +1,16 @@
 #!/bin/sh
 # platform: macOS-only -- compiles its fixtures' Mach-O with build/toolchain.sh's clang22, and the compat guard reads them
 # usage: sh tests/compare-builds-test.sh
-#   build/compare-builds.sh CROSS_IMAGE NATIVE_IMAGE against fixture images, each a JDK home (bin, lib, conf,
-#   man, release and one jmod holding a class, a man page and a dylib) with its build-info.txt beside it,
-#   as build/build-jdk.sh and CI's image artifact leave them. Against the cross fixture:
-#     a native image that agrees, its dylibs' bytes differing, its host and boot JDK differing, and with
-#       pandoc=none and no man pages (PORT.md ruling R55): exit 0, naming each differing Mach-O and what
-#       was excused;
+#   build/compare-builds.sh CROSS_IMAGE NATIVE_IMAGE against fixture images, each a JDK home (bin, conf,
+#   man, release, lib with a dylib, lib/modules and a jar, and one jmod holding module-info.class, a class,
+#   a man page and a dylib) with its build-info.txt beside it, as build/build-jdk.sh and CI's image
+#   artifact leave them. Every fixture's jar and jmod is zipped with its own entry times. Against the cross
+#   fixture:
+#     a native image that agrees, its dylibs' bytes differing and so lib/modules and the ModuleHashes in
+#       module-info.class, its host and boot JDK differing, and with pandoc=none and no man pages (PORT.md
+#       ruling R55): exit 0, naming each differing Mach-O and what was excused;
+#     one whose conf/net.properties differs, one whose jmod's or jar's class differs, one whose lib/modules differs
+#       while no Mach-O does, one whose module-info.class differs without ModuleHashes: exit 1, naming it;
 #     one missing a file, one whose jmod is missing an entry: exit 1, naming it;
 #     one with a different recaulk=: exit 1, naming the key and both values;
 #     one whose dylib imports _clock_gettime: exit 1, naming the compat guard;
@@ -24,23 +28,38 @@ trap 'rm -rf "$t"' EXIT
 
 dylib() {
   printf 'int jdk_fixture(void) { return %s; }\n%s\n' "$2" "${3:-}" > "$t/src.c"
-  $CC -mmacosx-version-min=10.9 -dynamiclib -Wl,-undefined,dynamic_lookup -o "$1" "$t/src.c" \
+  $CC -mmacosx-version-min=10.9 -dynamiclib -Wl,-undefined,dynamic_lookup -Wl,-install_name,@rpath/libfixture.dylib \
+    -o "$1" "$t/src.c" \
     || fail "fixture: could not compile $1"
+}
+stamp=200001010000
+zipped() {
+  stamp=$((stamp + 1))
+  find "$1" -exec touch -t "$stamp" {} + && rm -f "$t/z.zip" && (cd "$1" && zip -qrX "$t/z.zip" .) \
+    || fail "fixture: zip failed"
+}
+jmod() {
+  zipped "$t/jm"
+  # platform: a jmod is a zip behind the 4-byte header "JM" 1 0
+  printf 'JM\001\000' > "$1/image/jmods/java.base.jmod"; cat "$t/z.zip" >> "$1/image/jmods/java.base.jmod"
 }
 image() {
   i="$1/image"
-  mkdir -p "$i/bin" "$i/lib" "$i/conf" "$i/man/man1" "$i/jmods" "$t/jm"
+  mkdir -p "$i/bin" "$i/lib" "$i/conf" "$i/man/man1" "$i/jmods"
   dylib "$i/lib/libfixture.dylib" "$2"
+  printf 'jimage holding ModuleHashes of %s\n' "$2" > "$i/lib/modules"
   printf 'JAVA_VERSION="25.0.5.0.3"\n' > "$i/release"
   printf 'networkaddress.cache.ttl=30\n' > "$i/conf/net.properties"
   printf '.TH JAVA 1\n' > "$i/man/man1/java.1"
+  rm -rf "$t/jm"; mkdir -p "$t/jm/jdk/internal/jrtfs"
+  printf 'CAFEBABE jrtfs\n' > "$t/jm/jdk/internal/jrtfs/JrtFileSystem.class"
+  zipped "$t/jm"; cp "$t/z.zip" "$i/lib/jrt-fs.jar"
   rm -rf "$t/jm"; mkdir -p "$t/jm/classes" "$t/jm/lib" "$t/jm/man/man1"
-  printf 'CAFEBABE\n' > "$t/jm/classes/module-info.class"
+  printf 'CAFEBABE ModuleHashes %s\n' "$2" > "$t/jm/classes/module-info.class"
+  printf 'CAFEBABE Object\n' > "$t/jm/classes/Object.class"
   printf '.TH JAVA 1\n' > "$t/jm/man/man1/java.1"
   dylib "$t/jm/lib/libfixture.dylib" "$2"
-  rm -f "$t/jm.zip"; (cd "$t/jm" && zip -qr "$t/jm.zip" .) || fail "fixture: zip failed"
-  # platform: a jmod is a zip behind the 4-byte header "JM" 1 0
-  printf 'JM\001\000' > "$i/jmods/java.base.jmod"; cat "$t/jm.zip" >> "$i/jmods/java.base.jmod"
+  jmod "$1"
 }
 info() {
   d="$1"; shift
@@ -51,12 +70,8 @@ info() {
     sort "$t/bi" > "$d/build-info.txt"
   done
 }
-nojmodman() {
-  rm -rf "$t/jm" "$t/jm.zip"; mkdir -p "$t/jm"
-  (cd "$t/jm" && unzip -qo "$1/image/jmods/java.base.jmod" 2>/dev/null) || :
-  rm -rf "$t/jm/man"; (cd "$t/jm" && zip -qr "$t/jm.zip" .) || fail "fixture: zip failed"
-  printf 'JM\001\000' > "$1/image/jmods/java.base.jmod"; cat "$t/jm.zip" >> "$1/image/jmods/java.base.jmod"
-}
+unjmod() { rm -rf "$t/jm"; mkdir -p "$t/jm"; (cd "$t/jm" && unzip -qo "$1/image/jmods/java.base.jmod" 2>/dev/null) || :; }
+nojmodman() { unjmod "$1"; rm -rf "$t/jm/man"; jmod "$1"; }
 run() { rc=0; sh "$MAVERICKS_ROOT/build/compare-builds.sh" "$@" > "$t/out" 2>&1 || rc=$?; }
 has() { grep -q "$1" "$t/out" || fail "$2: the output does not say '$1': $(cat "$t/out")"; }
 
@@ -71,6 +86,40 @@ has 'Mach-O differs: jmods/java.base.jmod!lib/libfixture.dylib' "an agreeing nat
 has 'excused: host' "an agreeing native image"
 has 'excused: bootjdk' "an agreeing native image"
 has 'excused (pandoc=none): man/man1/java.1' "an agreeing native image"
+has 'excused (records Mach-O hashes): lib/modules' "an agreeing native image"
+has 'excused (records Mach-O hashes): jmods/java.base.jmod!classes/module-info.class' "an agreeing native image"
+if grep -q 'jrt-fs' "$t/out"; then fail "a jar whose entries agree was reported: $(cat "$t/out")"; fi
+
+n="$t/same"; image "$n" 1; info "$n"
+run "$c/image" "$n/image"
+[ "$rc" = 0 ] || fail "a native image with the cross image's bytes: exit $rc, not 0: $(cat "$t/out")"
+if grep -q 'differs' "$t/out"; then fail "fixture: the same sources made different bytes: $(cat "$t/out")"; fi
+
+n="$t/bytes"; image "$n" 1; info "$n"; printf 'networkaddress.cache.ttl=-1\n' > "$n/image/conf/net.properties"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native image whose conf/net.properties differs: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): conf/net.properties' "a native image whose conf/net.properties differs"
+
+n="$t/class"; image "$n" 1; info "$n"; unjmod "$n"; printf 'CAFEBABE Object2\n' > "$t/jm/classes/Object.class"; jmod "$n"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native jmod whose class differs: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): jmods/java.base.jmod!classes/Object.class' "a native jmod whose class differs"
+
+n="$t/jar"; image "$n" 1; info "$n"; rm -rf "$t/jm"; mkdir -p "$t/jm/jdk/internal/jrtfs"
+printf 'CAFEBABE jrtfs2\n' > "$t/jm/jdk/internal/jrtfs/JrtFileSystem.class"; zipped "$t/jm"; cp "$t/z.zip" "$n/image/lib/jrt-fs.jar"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native jar whose class differs: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): lib/jrt-fs.jar!jdk/internal/jrtfs/JrtFileSystem.class' "a native jar whose class differs"
+
+n="$t/modules"; image "$n" 1; info "$n"; printf 'another jimage\n' > "$n/image/lib/modules"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native lib/modules that differs while no Mach-O does: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): lib/modules' "a native lib/modules that differs while no Mach-O does"
+
+n="$t/modinfo"; image "$n" 2; info "$n"; unjmod "$n"; printf 'CAFEBABE 2\n' > "$t/jm/classes/module-info.class"; jmod "$n"
+run "$c/image" "$n/image"
+[ "$rc" = 1 ] || fail "a native module-info.class without ModuleHashes: exit $rc, not 1: $(cat "$t/out")"
+has 'differs (not Mach-O): jmods/java.base.jmod!classes/module-info.class' "a native module-info.class without ModuleHashes"
 
 n="$t/missing"; image "$n" 1; info "$n"; rm "$n/image/conf/net.properties"
 run "$c/image" "$n/image"

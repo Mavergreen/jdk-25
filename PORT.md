@@ -269,12 +269,16 @@ that every cited one is defined here). Each says what was decided, why, and what
   `tests/jtreg.sh` reads after the main list (`tests/jtreg.sh JDK tests/known-failures/x86_64-10.9.txt
   tests/known-failures/x86_64-10.9-multihomed-host.txt`), so the release gate is not blind to them.
   Cost: a native gate on that box must pass the overlay too.
-- **R55** A native 10.9 build is checked against the cross build by `build/compare-builds.sh`, which
-  excuses, and names, only what differs by design: the `host` each was built on; the `bootjdk` (10.9
-  boots with the installed jdk25, since the pinned Temurin build is aarch64; the cross build with that
-  Temurin); and, when one side records `pandoc=none`, the man pages it could not make (R19), in the
-  image's `man/` and each jmod's `man/`. Both builds configure with `--disable-cds-archive`: a cross
-  build cannot make the default CDS archive and a native one would, and the pkg's postinstall writes it
-  on the installed JDK either way. Mach-O bytes may differ, and so may what records them (a jmod's
-  module hashes, `lib/modules`); the script reports each such file and fails only on the build inputs,
-  the compat guard and the file lists. Cost: the native build's man pages go unchecked.
+- **R55** A native 10.9 build is checked against the cross build by `build/compare-builds.sh`. Every
+  file and every jmod, jar and zip entry must be in both images with the same bytes, except Mach-O,
+  whose bytes may differ and are reported. An archive is compared by its entries, never its own bytes,
+  since configure's default `--with-source-date=current` stamps them with its own time. When a Mach-O
+  differs, only what records its hashes may differ with it, each reported as excused: `lib/modules`,
+  and a jmod's `classes/module-info.class` that holds `ModuleHashes` on both sides (in 25.0.5,
+  `java.base`'s alone). It also excuses, and names, what differs by design: the `host` each was built
+  on; the `bootjdk` (10.9 boots with the installed jdk25, since the pinned Temurin build is aarch64;
+  the cross build with that Temurin); and, when one side records `pandoc=none`, the man pages it could
+  not make (R19), in the image's `man/` and each jmod's `man/`. Both builds configure with
+  `--disable-cds-archive`: the image ships no default CDS archive and the postinstall writes it (R28),
+  and a cross build cannot make one while a native one would. Cost: the native build's man pages go
+  unchecked, and a class differing only inside `lib/modules` is caught through its jmod, not there.

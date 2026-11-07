@@ -5,12 +5,17 @@
 #          build-info.txt beside it, as build/build-jdk.sh leaves $(jdk_build_root)/image and CI's image
 #          artifact unpacks. Exits 0 iff:
 #            both build-info.txt agree on every key both have, except what PORT.md ruling R55 excuses;
-#            both images pass the compat guard (jdk_compat_guard), jmods' Mach-O included;
-#            the sorted lists of their files, and of each jmod's entries, are the same.
-#          Mach-O bytes may differ and are reported as "Mach-O differs: PATH" (a jmod's entry as
-#          jmods/NAME.jmod!ENTRY), and so are other files' bytes, as "differs (not Mach-O): PATH": a
-#          jmod's module-info records hashes of the jmods its natives are in, so a Mach-O difference
-#          reaches them. A key only one build-info.txt has is reported, not compared.
+#            both images pass the compat guard (jdk_compat_guard), Mach-O inside archives included;
+#            the sorted lists of their files, and of each archive's entries (every jmod, jar and zip), are
+#            the same;
+#            every file and archive entry has the same bytes, except Mach-O, and what records Mach-O
+#            hashes when a Mach-O differs (R55: lib/modules, and a jmod's module-info.class holding
+#            ModuleHashes).
+#          An archive is compared by its entries, never its own bytes: its entries carry configure's
+#          time. A jmod's entries are unpacked (its Mach-O are guarded); a jar's or zip's are compared
+#          by length and CRC-32. A difference is reported as "Mach-O differs: PATH", "excused (records Mach-O hashes):
+#          PATH" or "differs (not Mach-O): PATH", an archive entry as ARCHIVE!ENTRY. A key only one
+#          build-info.txt has is reported, not compared.
 #          Exits 1 on a difference, 2 on a usage error or a missing image or build-info.txt.
 # spec: PORT.md ruling R55
 set -eu
@@ -32,26 +37,49 @@ bad=0
 side() {
   _n=$1; _i="$(cd "$2" && pwd)"
   grep '=' "$(dirname "$_i")/build-info.txt" | sort > "$T/$_n.info"
-  mkdir -p "$T/$_n.jmods"
-  for _m in "$_i"/jmods/*.jmod; do
-    [ -f "$_m" ] || continue
-    _d="$T/$_n.jmods/$(basename "$_m")"; mkdir -p "$_d"
+  (cd "$_i" && find . -type f -exec file {} +) | sed 's|^\./||' > "$T/$_n.types"
+  # platform: file(1) names a jar "Java archive" or "Zip archive" and a jmod "Java jmod", or on 10.9 only
+  #           "data", so a jmod is also known by its name
+  { grep -E ': +(Zip archive|Java archive|Java jmod)' "$T/$_n.types" | sed 's|: .*||'
+    sed -n 's|^\(.*\.jmod\): .*|\1|p' "$T/$_n.types"; } | sort -u > "$T/$_n.zips"
+  sed -n 's|^\(.*\): *Mach-O.*|\1|p' "$T/$_n.types" > "$T/$_n.macho"
+  sed "s|^|$_i/|" "$T/$_n.macho" > "$T/$_n.guard"
+  (cd "$_i" && find . -type f -exec shasum -a 256 {} +) | sed 's|  \./|  |' \
+    | awk 'NR == FNR { z[$0] = 1; next } { p = $0; sub(/^[^ ]*  /, "", p); if (p in z) print "archive  " p; else print }' \
+      "$T/$_n.zips" - > "$T/$_n.sums"
+  (cd "$_i" && find . -type l | while IFS= read -r _l; do printf 'link:%s  %s\n' "$(readlink "$_l")" "${_l#./}"; done) >> "$T/$_n.sums"
+  while IFS= read -r _z; do
+    case "$_z" in
+      *.jmod) ;;
+      *)
+        # platform: a jar or zip is compared by unzip -v's listing (each entry's length and CRC-32), not
+        #           unpacked: lib/security/public_suffix_list.dat's 1452 entries have IDN names, and
+        #           unpacked onto APFS only 1295 remain, unzip exiting 50
+        _rc=0; unzip -v "$_i/$_z" > "$T/$_n.v" 2>/dev/null || _rc=$?
+        [ "$_rc" -le 1 ] || { echo "compare-builds: unzip -v exited $_rc on $_i/$_z" >&2; exit 2; }
+        awk -v z="$_z" 'NF >= 8 && length($7) == 8 && $7 ~ /^[0-9a-f]+$/ && $1 ~ /^[0-9]+$/ {
+            e = $0; for (k = 1; k <= 7; k++) sub(/^ *[^ ]+/, "", e); sub(/^ +/, "", e)
+            if (e !~ /\/$/) print "crc:" $7 ":" $1 "  " z "!" e }' "$T/$_n.v" >> "$T/$_n.sums"
+        continue ;;
+    esac
+    _d="$T/$_n.x/$_z"; mkdir -p "$_d"
     # platform: a jmod is a zip behind a 4-byte header, which unzip reads past, exiting 1 for that
     #           header's warning, 2 and up on a real failure.
-    _rc=0; unzip -qo "$_m" -d "$_d" > /dev/null 2>&1 || _rc=$?
-    [ "$_rc" -le 1 ] || { echo "compare-builds: unzip exited $_rc on $_m" >&2; exit 2; }
-  done
-  { (cd "$_i" && find . -type f -exec shasum -a 256 {} + | sed 's|  \./|  |')
-    (cd "$T/$_n.jmods" && find . -type f -exec shasum -a 256 {} + | sed 's|  \./\([^/]*\)/|  jmods/\1!|')
-    (cd "$_i" && find . -type l | while IFS= read -r _l; do printf 'link:%s  %s\n' "$(readlink "$_l")" "${_l#./}"; done)
-  } | sort -k2 > "$T/$_n.sums"
+    _rc=0; unzip -qo "$_i/$_z" -d "$_d" > /dev/null 2>&1 || _rc=$?
+    [ "$_rc" -le 1 ] || { echo "compare-builds: unzip exited $_rc on $_i/$_z" >&2; exit 2; }
+    (cd "$_d" && find . -type f -exec shasum -a 256 {} +) | sed "s|  \./|  $_z!|" >> "$T/$_n.sums"
+    (cd "$_d" && find . -type f -exec file {} +) | sed -n 's|^\./\(.*\): *Mach-O.*|\1|p' > "$T/$_n.zm"
+    sed "s|^|$_z!|" "$T/$_n.zm" >> "$T/$_n.macho"
+    sed "s|^|$_d/|" "$T/$_n.zm" >> "$T/$_n.guard"
+  done < "$T/$_n.zips"
+  # platform: unzip -v prints each non-ASCII byte of an entry's name as "?", so public_suffix_list.dat's
+  #           IDN names collide; a path's hashes are compared as one sorted list
+  awk '{ h = $1; p = $0; sub(/^[^ ]*  /, "", p); print p "\t" h }' "$T/$_n.sums" | sort \
+    | awk -F '\t' '{ if (NR > 1 && $1 == last) acc = acc "," $2; else { if (NR > 1) print acc "  " last; acc = $2; last = $1 } }
+                   END { if (NR) print acc "  " last }' > "$T/$_n.sums2"
+  mv "$T/$_n.sums2" "$T/$_n.sums"
   sed 's/^[^ ]*  //' "$T/$_n.sums" | sort > "$T/$_n.paths"
-  (cd "$_i" && find . -type f -exec file {} + | sed -n 's|^\./\(.*\): *Mach-O.*|\1|p'; \
-   cd "$T/$_n.jmods" && find . -type f -exec file {} + | sed -n 's|^\./\([^/]*\)/\(.*\): *Mach-O.*|jmods/\1!\2|p') \
-    | sort > "$T/$_n.macho"
-  (cd "$_i" && find . -type f -exec file {} + | sed -n "s|^\(.*\): *Mach-O.*|$_i/\1|p"; \
-   cd "$T/$_n.jmods" && find . -type f -exec file {} + | sed -n "s|^\(.*\): *Mach-O.*|$T/$_n.jmods/\1|p") \
-    | sed 's|/\./|/|' > "$T/$_n.guard"
+  sort -o "$T/$_n.macho" "$T/$_n.macho"
 }
 side cross "$1"
 side native "$2"
@@ -96,10 +124,27 @@ comm -13 "$T/cross.paths" "$T/native.paths" | while IFS= read -r p; do
 done
 [ ! -s "$T/listbad" ] || bad=1
 
-join -1 2 -2 2 -o 0,1.1,2.1 "$T/cross.sums" "$T/native.sums" 2>/dev/null | while read -r p c n; do
+join -1 2 -2 2 -o 0,1.1,2.1 "$T/cross.sums" "$T/native.sums" | while read -r p c n; do
   [ "$c" = "$n" ] && continue
-  if grep -qxF "$p" "$T/cross.macho"; then say "Mach-O differs: $p"; else say "differs (not Mach-O): $p"; fi
+  if grep -qxF "$p" "$T/cross.macho"; then echo "macho $p"; else echo "other $p"; fi
+done > "$T/diffs"
+sed -n 's/^macho //p' "$T/diffs" | while IFS= read -r p; do say "Mach-O differs: $p"; done
+machodiff=no; ! grep -q '^macho ' "$T/diffs" || machodiff=yes
+# spec: PORT.md ruling R55 -- only what records the Mach-O's hashes may differ with them: lib/modules, and
+#       a jmod's module-info.class that holds ModuleHashes on both sides
+hashes() {
+  [ "$machodiff" = yes ] || return 1
+  case "$1" in
+    lib/modules) return 0 ;;
+    *.jmod!classes/module-info.class)
+      grep -q ModuleHashes "$T/cross.x/${1%%!*}/${1#*!}" && grep -q ModuleHashes "$T/native.x/${1%%!*}/${1#*!}" ;;
+    *) return 1 ;;
+  esac
+}
+sed -n 's/^other //p' "$T/diffs" | while IFS= read -r p; do
+  if hashes "$p"; then say "excused (records Mach-O hashes): $p"; else say "differs (not Mach-O): $p"; echo x >> "$T/bytebad"; fi
 done
+[ ! -s "$T/bytebad" ] || bad=1
 
 if [ "$bad" = 0 ]; then say "PASS: the native image agrees with the cross image"; exit 0; fi
 say "FAIL: the native image differs from the cross image"; exit 1
