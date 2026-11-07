@@ -13,6 +13,8 @@
 #          by shipyard's mavericks_fetch.sh into a cache under the build root, and its Contents/Home.
 #          jdk_boot_jdk_id HOME prints what build-info.txt records as that boot JDK: on Mac OS X 10.9
 #          jdk25-<HOME/release's JAVA_RUNTIME_VERSION>, elsewhere components/bootjdk/version's TAG.
+#          jdk_cxx_native_flags prints what CXX adds on Mac OS X 10.9 only, "-include sys/_types.h", and
+#          nothing elsewhere, so the cross build's CXX is unchanged.
 #          jdk_target_args prints configure's --openjdk-target for the cross build, and nothing on Mac
 #          OS X 10.9, which builds natively: there build, host and target are all x86_64 Darwin.
 #          jdk_compat_guard MACHO... runs shipyard's compat guard on a JDK image's Mach-O, with the
@@ -94,7 +96,8 @@ jdk_toolchain() {
   esac
   _pt_flags="--no-default-config --target=$_pt_target -isysroot $SDKROOT -fuse-ld=lld -Wno-unused-command-line-argument"
   CC="$CLANG22_BIN/clang $_pt_flags"
-  CXX="$CLANG22_BIN/clang++ $_pt_flags"
+  _pt_cxx="$(jdk_cxx_native_flags)"
+  CXX="$CLANG22_BIN/clang++ $_pt_flags${_pt_cxx:+ $_pt_cxx}"
   AR="$CLANG22_BIN/llvm-ar"
   RANLIB="$CLANG22_BIN/llvm-ranlib"
   NM="$CLANG22_BIN/llvm-nm"
@@ -142,6 +145,13 @@ jdk_boot_jdk_id() {
     printf 'jdk25-%s\n' "$_bi"; return 0
   fi
   sed -n 's/^TAG=//p' "$MAVERICKS_ROOT/components/bootjdk/version" | tr -d '[:space:]'; echo
+}
+
+jdk_cxx_native_flags() {
+  # spec: INGREDIENTS.md deviation native-cxx-include -- clang22 22.1.8's libc++ __mbstate_t.h includes
+  #       <sys/_types/_mbstate_t.h>, which in the 10.9 SDK uses __darwin_mbstate_t without including
+  #       <sys/_types.h>, so <iostream> does not compile; on 10.9 hotspot's adlc includes it
+  if jdk_host_is_109; then echo "-include sys/_types.h"; fi
 }
 
 jdk_target_args() {

@@ -8,6 +8,10 @@
 #   jdk_toolchain's clang22 is the installed /usr/local/mavergreen/clang22, refused, naming it, when
 #   absent. On a real 10.9 with both installed, the installed ones are what it gets; elsewhere the installed
 #   jdk25 is never run (PORT.md ruling R18): jdk_boot_jdk runs its java -version.
+#   jdk_cxx_native_flags is "-include sys/_types.h" on 10.9 and nothing elsewhere, and C++ including
+#   <iostream> compiles with clang22 against the 10.9 SDK with jdk_toolchain's CXX and those flags (on 10.9,
+#   CXX alone). Off 10.9, the same compile without them must still fail: when it passes, clang22's libc++
+#   is fixed and INGREDIENTS.md's native-cxx-include deviation goes.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 MAVERICKS_ROOT="$(cd "$here/.." && pwd)"; export MAVERICKS_ROOT
@@ -61,5 +65,22 @@ if [ -x /usr/local/mavergreen/clang22/bin/clang ]; then
 else
   if in109 'jdk_toolchain' > "$t/o" 2>&1; then fail "jdk_toolchain on 10.9 succeeded with no clang22 installed"; fi
   grep -q 'no clang22 at /usr/local/mavergreen/clang22' "$t/o" || fail "jdk_toolchain's refusal does not name /usr/local/mavergreen/clang22: $(cat "$t/o")"
+fi
+got="$(in109 'jdk_cxx_native_flags')"
+[ "$got" = "-include sys/_types.h" ] || fail "jdk_cxx_native_flags on 10.9 printed '$got', not -include sys/_types.h"
+cxx="$(onhost 'jdk_toolchain > /dev/null 2>&1 && printf %s "$CXX"')" || fail "jdk_toolchain failed"
+printf '#include <iostream>\nint main() { std::cout << 1; return 0; }\n' > "$t/io.cc"
+if onhost 'jdk_host_is_109'; then
+  $cxx -std=c++14 -c -o "$t/io.o" "$t/io.cc" > "$t/o" 2>&1 || fail "jdk_toolchain's CXX on this 10.9 cannot compile <iostream>: $(head -5 "$t/o")"
+else
+  [ -z "$(onhost 'jdk_cxx_native_flags')" ] || fail "jdk_cxx_native_flags off 10.9 printed '$(onhost 'jdk_cxx_native_flags')': the cross build's CXX must not change"
+  case "$cxx" in *sys/_types.h*) fail "the cross build's CXX includes sys/_types.h: $cxx" ;; esac
+  # shellcheck disable=SC2086  # CXX is a command line
+  $cxx $got -std=c++14 -c -o "$t/io.o" "$t/io.cc" > "$t/o" 2>&1 \
+    || fail "clang22 cannot compile <iostream> against the 10.9 SDK even with $got: $(head -5 "$t/o")"
+  # shellcheck disable=SC2086
+  if $cxx -std=c++14 -c -o "$t/io.o" "$t/io.cc" > /dev/null 2>&1; then
+    fail "clang22's libc++ now compiles <iostream> against the 10.9 SDK without $got: delete INGREDIENTS.md's native-cxx-include deviation and jdk_cxx_native_flags"
+  fi
 fi
 echo "PASS: native-host"
