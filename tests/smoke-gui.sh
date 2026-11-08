@@ -26,6 +26,9 @@
 #          not try to get round that.
 #          SMOKE_GUI_SHOTS=DIR keeps GuiSmoke's screenshots there, each named with what to see:
 #          screenmenubar.png (the screen's menu bar), hello.png (Lucida Grande), dock.png (the badge).
+#          SMOKE_GUI_HOLD=1 runs none of the steps: GuiSmoke opens one frame for a person to try with
+#          VoiceOver (PORT.md ruling R61) and stays open until it is closed; this script then requires
+#          no ok lines, sets no time limit, and exits with GuiSmoke's own status.
 #          A failed dnd prints its trace (trace dnd: lines, what AWT, the drag source and the drop target
 #          saw); SMOKE_GUI_TRACE=1 prints it on a pass too. GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
 #          bounds the whole run.
@@ -66,6 +69,12 @@ trap 'exit 1' HUP INT TERM
 "$JDK_HOME/bin/javac" -d "$T/classes" "$here/java/GuiSmoke.java" > "$T/javac.out" 2>&1 \
   || { cat "$T/javac.out" >&2; echo "FAIL compile: javac could not compile tests/java/GuiSmoke.java" >&2; exit 1; }
 
+if [ -n "${SMOKE_GUI_HOLD:-}" ]; then
+  prc=0
+  "$java" -cp "$T/classes" -Dguismoke.hold=true GuiSmoke < /dev/null || prc=$?
+  echo "smoke-gui: hold mode ended (GuiSmoke exited $prc); no steps were run"
+  exit "$prc"
+fi
 prc=0
 "$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} ${SMOKE_GUI_TRACE:+-Dguismoke.trace=true} ${SMOKE_GUI_BROWSE:+-Dguismoke.browse=true} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
 pid=$!

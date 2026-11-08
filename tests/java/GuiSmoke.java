@@ -35,6 +35,10 @@
  *              reaches a printer queue or a dialog; the page's Printable ran, and the file starts
  *              %!PS-Adobe;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
+ * With -Dguismoke.hold=true it runs none of these: it opens one frame for a person to try with
+ * VoiceOver (a Smoke menu in the screen's menu bar, a labelled text field, a "Say hello" button and
+ * the label it sets) and stays open, with no watchdog and no Robot, until the window is closed or
+ * the application quits.
  * Robot reads the screen in the display's colour space, not the sRGB the panel paints in: on the 10.9
  * box sRGB #219e5b read back as #009d5b. So the first read-back is judged by which channel dominates,
  * which a display profile keeps for a saturated colour, and every later one against that first read.
@@ -124,6 +128,10 @@ public class GuiSmoke {
     public static void main(String[] args) throws Exception {
         // Aqua reads it when it installs a JMenuBar's UI, so before any Swing component exists.
         System.setProperty("apple.laf.useScreenMenuBar", "true");
+        if (Boolean.getBoolean("guismoke.hold")) {
+            hold();
+            return;
+        }
         Thread watchdog = new Thread(() -> {
             try { Thread.sleep(TimeUnit.SECONDS.toMillis(180)); } catch (InterruptedException e) { return; }
             System.out.println("FAIL watchdog: GuiSmoke did not finish in 180 s");
@@ -151,6 +159,46 @@ public class GuiSmoke {
         System.out.println("PASS GuiSmoke");
         System.out.flush();
         System.exit(0);
+    }
+
+    // For a person with VoiceOver (Task 18): nothing here times out or moves the pointer.
+    static void hold() throws Exception {
+        EventQueue.invokeAndWait(() -> {
+            JFrame f = new JFrame("GuiSmoke VoiceOver");
+            f.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+            f.addWindowListener(new WindowAdapter() {
+                @Override public void windowClosed(WindowEvent e) { System.exit(0); }
+            });
+            javax.swing.JLabel said = new javax.swing.JLabel("Nobody has said hello yet");
+            JTextField name = new JTextField(16);
+            javax.swing.JLabel nameLabel = new javax.swing.JLabel("Your name:");
+            nameLabel.setLabelFor(name);
+            javax.swing.JButton hello = new javax.swing.JButton("Say hello");
+            java.awt.event.ActionListener say = e -> said.setText("Hello, " + (name.getText().isBlank() ? "world" : name.getText().trim()));
+            hello.addActionListener(say);
+            JMenuBar mb = new JMenuBar();
+            JMenu menu = new JMenu("Smoke");
+            JMenuItem item = new JMenuItem("Say hello");
+            item.addActionListener(say);
+            menu.add(item);
+            mb.add(menu);
+            f.setJMenuBar(mb);
+            JPanel row = new JPanel();
+            row.add(nameLabel);
+            row.add(name);
+            row.add(hello);
+            f.getContentPane().add(row, java.awt.BorderLayout.NORTH);
+            f.getContentPane().add(said, java.awt.BorderLayout.SOUTH);
+            f.pack();
+            f.setLocation(80, 80);
+            f.setVisible(true);
+        });
+        foreground();
+        System.out.println("hold: try VoiceOver now. Cmd-F5 turns it on; VO-M (Ctrl-Option-M) goes to the menu bar,"
+            + " where the Smoke menu holds \"Say hello\"; in the window, Tab moves from the \"Your name:\" field"
+            + " to the \"Say hello\" button, and VO-Space presses it, which changes the label below."
+            + " Close the window or quit (Cmd-Q) to end.");
+        System.out.flush();
     }
 
     static void step(String name, Step s) {
