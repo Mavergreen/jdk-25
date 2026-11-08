@@ -61,7 +61,8 @@ It leaves the image at `$MAVERICKS_BUILD_ROOT/jdk-25/image`, with `build-info.tx
 ## Compare with the cross build
 
 CI's `image` artifact unpacks to the same layout as the native build: `image/` with `build-info.txt`
-beside it. Use the artifact from the cross build of the same commit, then run:
+beside it. Use the artifact from the cross build of the same commit if CI made one. Otherwise a
+release's artifact works too, with the caveat below. Then run:
 
 ```sh
 sh build/compare-builds.sh CROSS_DIR/image "$MAVERICKS_BUILD_ROOT/jdk-25/image"
@@ -119,7 +120,9 @@ entry.
   Everything else is native-only.
 - **Result:** `compare-builds: PASS: the native image agrees with the cross image`, exit 0. Both images
   pass the compat guard with 145 Mach-O files each, and all 145 differ (72 in the image, 73 inside the
-  jmods). The `features` lines are identical, `zgc` and `dtrace` included.
+  jmods). The `features` lines are identical, `zgc` and `dtrace` included. That comparison is between
+  the two `build-info.txt` files, staged in the maintainer's `shared-trees/mm-transfer` as
+  `cross-build-info-cb771d1.txt` and `native-build-info-528183f.txt`.
 - **Excused:**
   - `bootjdk` (R55);
   - `pandoc` and the 58 man pages a `pandoc=none` build lacks: 29 in `man/man1` and 29 inside the jmods
