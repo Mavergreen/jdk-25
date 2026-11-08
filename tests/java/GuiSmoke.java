@@ -534,13 +534,35 @@ public class GuiSmoke {
         });
     }
 
+    // Swing starts a text drag only from a press on the selection (BasicTextUI.DragListener's
+    // isDragPossible: the press's model position must be at least the selection's start and below
+    // its end); the field's centre lies past the end of left-aligned "dragme", which made the press
+    // a caret click on the 10.9 box. So the press goes between the second and fifth characters.
+    static Point onSelectedText() throws Exception {
+        return onEdt(() -> {
+            java.awt.geom.Rectangle2D a = dragSource.modelToView2D(1);
+            java.awt.geom.Rectangle2D b = dragSource.modelToView2D(5);
+            Point p = dragSource.getLocationOnScreen();
+            return new Point(p.x + (int) Math.round((a.getX() + b.getX()) / 2), p.y + (int) Math.round(a.getCenterY()));
+        });
+    }
+
     static void dnd() throws Exception {
         dndStart = System.nanoTime();
+        Thread.UncaughtExceptionHandler earlier = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> trace("uncaught on " + t.getName() + ": " + e));
         listenToDrag();
         onEdt(() -> { dragSource.requestFocusInWindow(); dragSource.selectAll(); return null; });
         settle();
-        Point from = centreOf(dragSource);
+        Point from = onSelectedText();
         Point to = centreOf(dragTarget);
+        String where = onEdt(() -> {
+            Point p = dragSource.getLocationOnScreen();
+            int pos = dragSource.viewToModel2D(new Point(from.x - p.x, from.y - p.y));
+            return "source selection " + dragSource.getSelectionStart() + "-" + dragSource.getSelectionEnd()
+                + " of \"" + dragSource.getText() + "\", press at model position " + pos;
+        });
+        trace(where);
         trace("robot: press at " + from + ", drag to " + to);
         robot.mouseMove(from.x, from.y);
         robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
@@ -571,6 +593,7 @@ public class GuiSmoke {
             text = onEdt(() -> dragTarget.getText());
         }
         if (Boolean.getBoolean("guismoke.trace")) printTrace();
+        Thread.setDefaultUncaughtExceptionHandler(earlier);
     }
 
     static void printTrace() {
