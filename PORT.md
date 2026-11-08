@@ -420,6 +420,8 @@ that every cited one is defined here). Each says what was decided, why, and what
     `StreamPrintService` before it touches the native path, so no queue or dialog is reachable. The
     step also refuses to print unless the job's service is that stream.
 
-  Cost: the step proves `PrinterJob` and Java2D's print graphics, not AppKit's print path. Exit: a
-  patch that makes `CPrinterJob` honour a `Destination` attribute (then PDF, with no dialog), if the
-  maintainer wants that path exercised.
+  Cost: the step proves `PrinterJob` and Java2D's print graphics, not AppKit's print path. On 10.9 a
+  user makes a PDF through the native print dialog's PDF button, and Task 19's real-hardware pass
+  exercises that by hand. No untested `CPrinterJob` patch (the controller's ruling, 2026-11-07): a
+  wrong one prints on a real printer. Exit: a patch that makes `CPrinterJob` honour a `Destination`
+  attribute, tested where no printer queue exists, if the maintainer wants that path automated.

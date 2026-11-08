@@ -486,26 +486,96 @@ public class GuiSmoke {
         });
     }
 
+    static final java.util.List<String> dndTrace = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+    static volatile long dndStart;
+
+    static void trace(String what) {
+        dndTrace.add(String.format("%6d ms %s", (System.nanoTime() - dndStart) / 1_000_000, what));
+    }
+
+    static String nameOf(Object c) {
+        return c == dragSource ? "source" : c == dragTarget ? "target" : c == null ? "null" : c.getClass().getSimpleName();
+    }
+
+    // What each layer saw, printed with a failure (or always, with -Dguismoke.trace=true): AWT's mouse
+    // events per field, the DragSource callbacks that come only once AppKit's drag session runs, and
+    // the target's DropTarget callbacks.
+    static void listenToDrag() throws Exception {
+        final int[] dragged = {0};
+        final int[] moved = {0};
+        final int[] over = {0};
+        final int[] targetOver = {0};
+        java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(e -> {
+            java.awt.event.MouseEvent m = (java.awt.event.MouseEvent) e;
+            switch (m.getID()) {
+                case java.awt.event.MouseEvent.MOUSE_PRESSED -> trace("awt pressed on " + nameOf(m.getComponent()) + " at " + m.getLocationOnScreen());
+                case java.awt.event.MouseEvent.MOUSE_RELEASED -> trace("awt released on " + nameOf(m.getComponent()) + " at " + m.getLocationOnScreen() + " after " + dragged[0] + " drag events");
+                case java.awt.event.MouseEvent.MOUSE_DRAGGED -> { if (dragged[0]++ == 0) trace("awt first drag event on " + nameOf(m.getComponent()) + " at " + m.getLocationOnScreen()); }
+                default -> { }
+            }
+        }, java.awt.AWTEvent.MOUSE_EVENT_MASK | java.awt.AWTEvent.MOUSE_MOTION_EVENT_MASK);
+        java.awt.dnd.DragSource ds = java.awt.dnd.DragSource.getDefaultDragSource();
+        ds.addDragSourceMotionListener(e -> { if (moved[0]++ == 0) trace("drag source: first move, the native drag session is running, at " + e.getLocation()); });
+        ds.addDragSourceListener(new java.awt.dnd.DragSourceListener() {
+            public void dragEnter(java.awt.dnd.DragSourceDragEvent e) { trace("drag source: enter, action " + e.getDropAction()); }
+            public void dragOver(java.awt.dnd.DragSourceDragEvent e) { if (over[0]++ == 0) trace("drag source: first over, action " + e.getDropAction()); }
+            public void dropActionChanged(java.awt.dnd.DragSourceDragEvent e) { trace("drag source: action changed to " + e.getDropAction()); }
+            public void dragExit(java.awt.dnd.DragSourceEvent e) { trace("drag source: exit"); }
+            public void dragDropEnd(java.awt.dnd.DragSourceDropEvent e) { trace("drag source: drop end, success " + e.getDropSuccess() + ", action " + e.getDropAction() + " after " + moved[0] + " moves"); }
+        });
+        onEdt(() -> {
+            dragTarget.getDropTarget().addDropTargetListener(new java.awt.dnd.DropTargetAdapter() {
+                @Override public void dragEnter(java.awt.dnd.DropTargetDragEvent e) { trace("drop target: enter, action " + e.getDropAction() + ", flavours " + java.util.Arrays.toString(e.getCurrentDataFlavors())); }
+                @Override public void dragOver(java.awt.dnd.DropTargetDragEvent e) { if (targetOver[0]++ == 0) trace("drop target: first over"); }
+                @Override public void dragExit(java.awt.dnd.DropTargetEvent e) { trace("drop target: exit"); }
+                @Override public void drop(java.awt.dnd.DropTargetDropEvent e) { trace("drop target: drop, action " + e.getDropAction()); }
+            });
+            return null;
+        });
+    }
+
     static void dnd() throws Exception {
+        dndStart = System.nanoTime();
+        listenToDrag();
         onEdt(() -> { dragSource.requestFocusInWindow(); dragSource.selectAll(); return null; });
         settle();
         Point from = centreOf(dragSource);
         Point to = centreOf(dragTarget);
+        trace("robot: press at " + from + ", drag to " + to);
         robot.mouseMove(from.x, from.y);
         robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
-        // Swing starts a drag only after the mouse moves past its threshold while pressed
-        for (int i = 1; i <= 20; i++) {
-            robot.mouseMove(from.x + (to.x - from.x) * i / 20, from.y + (to.y - from.y) * i / 20);
+        robot.delay(200);
+        // Swing starts a drag only after the mouse moves past its threshold while pressed, and
+        // AppKit's drag session follows the pointer only once it has begun, so the moves are small
+        // and keep coming over the target before the release.
+        for (int i = 1; i <= 30; i++) {
+            robot.mouseMove(from.x + (to.x - from.x) * i / 30, from.y + (to.y - from.y) * i / 30);
             robot.delay(30);
         }
+        for (int i = 0; i < 6; i++) {
+            robot.mouseMove(to.x + (i % 2 == 0 ? 2 : -2), to.y);
+            robot.delay(60);
+        }
+        robot.mouseMove(to.x, to.y);
         robot.delay(300);
+        trace("robot: release at " + to);
         robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
         String text = onEdt(() -> dragTarget.getText());
         while (!text.contains("dragme")) {
-            require(System.nanoTime() < until, "after the drag the target field holds \"" + text + "\", not \"dragme\"");
+            if (System.nanoTime() >= until) {
+                printTrace();
+                require(false, "after the drag the target field holds \"" + text + "\", not \"dragme\" (the trace above says which layer stopped)");
+            }
             Thread.sleep(100);
             text = onEdt(() -> dragTarget.getText());
+        }
+        if (Boolean.getBoolean("guismoke.trace")) printTrace();
+    }
+
+    static void printTrace() {
+        synchronized (dndTrace) {
+            for (String t : dndTrace) System.out.println("trace dnd: " + t);
         }
     }
 

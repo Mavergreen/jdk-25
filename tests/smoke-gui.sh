@@ -22,7 +22,9 @@
 #          screen capture nothing (screencapture writes no file), so Robot reads black; this script does
 #          not try to get round that.
 #          SMOKE_GUI_SHOTS=DIR keeps GuiSmoke's screenshots there, each named with what to see:
-#          screenmenubar.png (the screen's menu bar), hello.png (Lucida Grande), dock.png (the badge). GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
+#          screenmenubar.png (the screen's menu bar), hello.png (Lucida Grande), dock.png (the badge).
+#          A failed dnd prints its trace (trace dnd: lines, what AWT, the drag source and the drop target
+#          saw); SMOKE_GUI_TRACE=1 prints it on a pass too. GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
 #          bounds the whole run.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -62,7 +64,7 @@ trap 'exit 1' HUP INT TERM
   || { cat "$T/javac.out" >&2; echo "FAIL compile: javac could not compile tests/java/GuiSmoke.java" >&2; exit 1; }
 
 prc=0
-"$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
+"$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} ${SMOKE_GUI_TRACE:+-Dguismoke.trace=true} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
 pid=$!
 (sleep "${SMOKE_GUI_SECONDS:-240}"; kill -9 "$pid" 2> /dev/null) > /dev/null 2>&1 &
 guard=$!
