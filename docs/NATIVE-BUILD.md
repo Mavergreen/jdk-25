@@ -89,3 +89,56 @@ Some differences are expected and don't fail the run:
 
 Any other byte difference is reported as `differs (not Mach-O)` and fails the run. Each failure is a
 finding to fix before the native build is trusted.
+
+A key only one `build-info.txt` has is reported as `only cross has KEY (not compared)` or `only native
+has KEY (not compared)`. An image built before `host` was recorded has no `host` key, so against it
+`host` is reported that way instead of as `excused`.
+
+CI makes an `image` artifact only for a pushed commit, and it expires after a while. If the commit you
+built has none, the nearest is a release's artifact, but then the comparison spans every change between
+the two commits as well, so a PASS says less. The pass recorded below is one of those: a same-commit
+comparison hasn't been done yet.
+
+Neither a pass nor a failure changes `INGREDIENTS.md`, which records no deviation for the native
+build. Checking every commit this way needs the scheduled native build job, and that is still a QUEUE
+entry.
+
+## Recorded passes
+
+### 2026-11-07: 528183f against release 1
+
+- **Native:** commit 528183f, built on Mac OS X 10.9.5 (`host=x86_64-macos10.9.5`), booted by
+  `jdk25-25.0.5.0.3+1-mavericks.1`, with `clang22=22.1.8-mavericks.12`. `build/build-jdk.sh` exited 0,
+  and the native `java -version` runs.
+- **Cross:** release 1's CI `image` artifact, commit cb771d1 (CI run 42377643341). 528183f wasn't
+  pushed, so CI had made no artifact for it. Between the two commits, the changes that reach a cross
+  build are:
+  - `--disable-cds-archive`, which changes nothing in the image, since a cross build makes no CDS archive;
+  - `build-info.txt`'s new `host` key and its `bootjdk` value.
+
+  Everything else is native-only.
+- **Result:** `compare-builds: PASS: the native image agrees with the cross image`, exit 0. Both images
+  pass the compat guard with 145 Mach-O files each, and all 145 differ (72 in the image, 73 inside the
+  jmods). The `features` lines are identical, `zgc` and `dtrace` included.
+- **Excused:**
+  - `bootjdk` (R55);
+  - `pandoc` and the 58 man pages a `pandoc=none` build lacks: 29 in `man/man1` and 29 inside the jmods
+    (R55, R19);
+  - the `Created-By` line in 13 jar manifests, the 11 `demo/jfc` jars and `lib/jrt-fs.jar` both on its own
+    and inside `java.base.jmod` (R55);
+  - `java.base.jmod`'s `module-info.class` and `lib/modules`, which record Mach-O hashes (R55).
+
+  `host` was reported as only on the native side, as above.
+- **What made the rest agree:** each of these fixed a native difference; none of them is an excusal.
+  - **R57:** on 10.9, configure's `CODESIGN` is a shim that 10.9's codesign tools can follow, so the native
+    build gets through signing at all.
+  - **R58:** `TZ=UTC` makes `lib/classlist` match.
+  - **R59:** `patches/0020` makes the 68 jmods' `module-info.class` match.
+- **`lib/modules` by hand:** both sides' `lib/modules` were extracted with `jimage extract` and
+  compared. Ten entries differ, and each records or is a Mach-O:
+  - `java.base/module-info.class`;
+  - the 8 `SystemModules$*` classes, which differ only in one byte-array literal each, the module
+    hashes;
+  - `jpackageapplauncher`, a Mach-O that the guard also checks through its jmod.
+
+  Nothing else differs, so the excusal hid nothing in this pass.
