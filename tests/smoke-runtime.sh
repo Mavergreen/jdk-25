@@ -8,8 +8,8 @@
 #   (tests/lib/host-cpu.sh's jdk_runs_natively, by its release file's OS_ARCH or bin/java read through
 #   symlinks: an x86_64 JDK on an arm64 Mac, Rosetta or not), decided without running it.
 #   --network adds an HttpClient GET of https://github.com (needs the network).
-#   The program always runs with -Djava.awt.headless=true: on gui, without patches/0013, a console
-#   login would otherwise make it headful, and tests/smoke-gui.sh is the headful check.
+#   The program always runs with -Djava.awt.headless=true: since the GUI release (no patches/0013) a
+#   console login would otherwise make it headful, and tests/smoke-gui.sh is the headful check.
 #   SMOKE_STOCK_JDK=1 is accepted and changes nothing, so older callers still work.
 #   --version is required of the tools listed in known_tools (the launchers the JDK 25 man pages
 #   document with --version); any other bin/* is tried and skipped if it rejects --version and -version.

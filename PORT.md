@@ -71,8 +71,8 @@ is classified below into one of three classes:
 
 - **Recaulk**: the hunk exists only because 10.9's libSystem lacks a generic function. Recaulk
   provides the function, so the JDK carries no patch for it; the JDK links Recaulk instead.
-- **JDK-headless**: a JDK-specific change the headless release needs. Carried in `patches/`, applied
-  by shipyard's `apply_patches.sh`.
+- **JDK-headless**: a JDK-specific change every build needs, GUI or not; the name is from release 1,
+  which shipped headless. Carried in `patches/`, applied by shipyard's `apply_patches.sh`.
 - **JDK-GUI**: AppKit, Java2D or accessibility. Carried in `patches/` too since release 2's GUI work
   landed on `main` (ruling R61); `patches-gui/` is gone.
 
@@ -190,9 +190,9 @@ that every cited one is defined here). Each says what was decided, why, and what
 - **R10** Upstream configure refuses `--enable-headless-only` on macOS (`make/autoconf/jdk-options.m4`),
   so release 1 builds and links `java.desktop` in full. Patches needed to compile and link it against
   the 10.9 SDK live in `patches/`; `patches/0013` made `java.awt.headless` default to true (still
-  overridable). The `gui` branch deletes that patch rather than dropping a configure flag, and its
-  merge is release 2's gating commit; without it, upstream's default holds: headless exactly when the
-  process is outside an Aqua session (`PlatformGraphicsInfo.getDefaultHeadlessProperty`).
+  overridable). The GUI release (25.0.5.0.3-mavericks.3) deleted that patch, in Task 20's gating
+  commit, rather than dropping a configure flag. Since then upstream's default holds: headless
+  exactly when the process is outside an Aqua session (`PlatformGraphicsInfo.getDefaultHeadlessProperty`).
 - **R11** `SecureDirectoryStream` stays off on 10.9: the only cross-directory `renameat` available goes
   through `F_GETPATH` and `rename()`, a race that breaks its guarantee. Callers fall back to the
   non-secure stream, which upstream already handles. Exit: Recaulk gains an fd-relative `renameat`.
@@ -457,10 +457,10 @@ that every cited one is defined here). Each says what was decided, why, and what
   Cost: browse's LaunchServices path runs only in the opt-in run, which browses a small `file:` page
   and asks for an eye check: Task 19's hands-on pass. Exit: none needed; a smoke must not drive the
   maintainer's own browser.
-- **R65** The `on-target:accessibility` deviation (Swing invisible to VoiceOver on 10.9, R61) is
-  declared on `gui`, beside the flag flip, not on `main`. On `main` the JDK is headless by default
-  (`patches/0013`), so no Swing window reaches AppKit, and `on-target:gui` already declares GUI
-  unsupported. The gap reaches users only in the release that turns the GUI on, which is `gui`'s
-  merge. When that merge deletes `on-target:gui` (Task 20), this line stays until its exit.
+- **R65** The `on-target:accessibility` deviation (Swing invisible to VoiceOver on 10.9, R61) was
+  declared on `gui`, beside the flag flip, not on `main`. Until the GUI release, `main`'s JDK was
+  headless by default (`patches/0013`), so no Swing window reached AppKit, and `on-target:gui`
+  declared GUI unsupported. The gap reaches users only in the release that turns the GUI on. Task
+  20's gating commit deleted `on-target:gui`; this line stays until its exit.
 
-  Cost: `main`'s `INGREDIENTS.md` doesn't list the gap until then. Exit: as R61's.
+  Cost: before the GUI release, `main`'s `INGREDIENTS.md` didn't list the gap. Exit: as R61's.

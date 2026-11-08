@@ -2,7 +2,7 @@
 # platform: macOS-only -- needs this user's Aqua session (a console login) to open windows
 #   usage: JDK_HOME=<dir> sh tests/smoke-gui.sh
 #          Compiles tests/java/GuiSmoke.java with JDK_HOME's javac and runs it with JDK_HOME's java,
-#          without -Djava.awt.headless, so the JDK's own default decides (gui: headful in an Aqua
+#          without -Djava.awt.headless, so the JDK's own default decides (headful in an Aqua
 #          session). It requires an "ok <step>" line for each of: headful frame screenmenubar paint
 #          pixel resize fullscreen type fonts clipboard dnd badge desktop print close. The run sets the
 #          clipboard and puts its text back, badges the Dock icon and clears it, opens an empty

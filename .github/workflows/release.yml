@@ -123,6 +123,8 @@ jobs:
           cat "$RUNNER_TEMP/build-jdk-test.log"
           [ "$rc" -eq 77 ] && grep -q '^ok static: ' "$RUNNER_TEMP/build-jdk-test.log" \
             || { echo "::error::wanted the static checks to pass and the runtime half to skip (exit 77), got exit $rc"; exit 1; }
+      - name: No Mach-O in the image or its jmods links or needs Metal, and the compat guard passes, selectors included
+        run: JDK_BUILD=1 sh tests/no-metal-test.sh
       - name: No step or script of a macOS job runs x86_64 code, which this runner would translate with Rosetta (PORT.md ruling R18)
         run: sh tests/rosetta-free-test.sh
       # platform: archive.apache.org, which serves jtreg's Ant, answers GitHub's runners only now and then;

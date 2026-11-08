@@ -143,8 +143,8 @@ if [ "$executes" = no ]; then
 fi
 "$img/bin/java" -XshowSettings:properties -version > "$T/props" 2>&1 \
   || { cat "$T/props" >&2; fail "bin/java -XshowSettings:properties -version failed"; }
-# spec: PORT.md ruling R10 -- on gui, patches/0013 is gone, so the property is unset and upstream decides
-#       headless by the Aqua session
+# spec: PORT.md ruling R10 -- since the GUI release patches/0013 is gone, so the property is unset
+#       and upstream decides headless by the Aqua session
 if grep -Eq '^ +java\.awt\.headless = ' "$T/props"; then
   fail "java.awt.headless is set by default ($(grep 'java.awt.headless' "$T/props")): patches/0013 is still applied"
 fi
