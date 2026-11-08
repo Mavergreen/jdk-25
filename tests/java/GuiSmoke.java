@@ -21,9 +21,12 @@
  *   clipboard  a string set on the system clipboard reads back in Java and through /usr/bin/pbpaste
  *              (the AppKit pasteboard), and the clipboard's earlier string is put back;
  *   dnd        Robot drags the selected "dragme" from one text field and drops it on another;
- *   badge      Taskbar sets the dock icon's badge to "17" (with shots, dock.png shows it), then clears it;
+ *   badge      Taskbar supports a badge and sets "17" without error, then clears it; with shots, dock.png
+ *              shows it, unless the Dock autohides, which the shot line then says;
  *   desktop    Desktop.open of a new empty folder and Desktop.browse of another's file: URL each open a
- *              Finder window (LaunchServices, patches/0006), which /usr/bin/osascript sees and closes;
+ *              Finder window on exactly that folder (LaunchServices, patches/0006), not its parent, as
+ *              /usr/bin/osascript reads each window's target; the step closes every window it opened,
+ *              even after a failure, before it deletes the folders;
  *   print      PrinterJob prints a page to a PostScript file through a StreamPrintService, which never
  *              reaches a printer queue or a dialog; the file starts %!PS-Adobe;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
@@ -610,24 +613,80 @@ public class GuiSmoke {
         robot.delay(1000);
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
             .getDefaultConfiguration().getBounds();
-        shot("dock.png", screen, "the Dock's GuiSmoke (java) icon wears a red badge reading 17 (a hidden Dock shows nothing)");
+        String see = dockAutohides()
+            ? "nothing to judge: this Dock autohides (com.apple.dock autohide = 1), so the shot cannot show the badge; setIconBadge(\"17\") was supported and threw nothing"
+            : "the Dock's GuiSmoke (java) icon wears a red badge reading 17";
+        shot("dock.png", screen, see);
         tb.setIconBadge(null);
     }
 
-    static String osascript(String script) throws Exception {
-        Process p = new ProcessBuilder("/usr/bin/osascript", "-e", script).redirectErrorStream(true).start();
+    // Read, never changed: the maintainer's Dock setting decides whether dock.png can show anything.
+    static boolean dockAutohides() {
+        try {
+            Process p = new ProcessBuilder("/usr/bin/defaults", "read", "com.apple.dock", "autohide").redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+            return p.waitFor() == 0 && (out.equals("1") || out.equalsIgnoreCase("true"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static String osascript(String... lines) throws Exception {
+        java.util.List<String> cmd = new java.util.ArrayList<>();
+        cmd.add("/usr/bin/osascript");
+        for (String l : lines) { cmd.add("-e"); cmd.add(l); }
+        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
         require(p.waitFor() == 0, "/usr/bin/osascript exited " + p.exitValue() + ": " + out);
         return out;
     }
 
-    static void finderOpened(String name, String how) throws Exception {
+    // Each Finder window by the POSIX path of the folder it shows, so the step knows which folder
+    // opened. 10.9's Finder refuses "close (every Finder window whose ...)" (-10010), so windows are
+    // walked one by one; a window whose target is no folder is skipped.
+    static java.util.List<String> finderWindows() throws Exception {
+        String out = osascript(
+            "tell application \"Finder\"",
+            "  set out to \"\"",
+            "  repeat with w in (get every Finder window)",
+            "    try",
+            "      set out to out & (POSIX path of (target of w as alias)) & linefeed",
+            "    end try",
+            "  end repeat",
+            "  return out",
+            "end tell");
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        for (String l : out.split("\n")) if (!l.isBlank()) paths.add(l.trim());
+        return paths;
+    }
+
+    static void closeFinderWindow(String path) throws Exception {
+        osascript(
+            "tell application \"Finder\"",
+            "  repeat with w in (get every Finder window)",
+            "    try",
+            "      if POSIX path of (target of w as alias) is \"" + path + "\" then close w",
+            "    end try",
+            "  end repeat",
+            "end tell");
+    }
+
+    static String folderPath(java.nio.file.Path p) throws Exception {
+        return p.toRealPath().toString() + "/";
+    }
+
+    static void finderOpened(String path, String parent, java.util.List<String> before, String how) throws Exception {
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
-        while (!osascript("tell application \"Finder\" to get name of every Finder window").contains(name)) {
-            require(System.nanoTime() < until, how + " opened no Finder window named " + name + " in " + STEP_SECONDS + " s");
+        java.util.List<String> now = finderWindows();
+        while (!now.contains(path)) {
+            require(!(now.contains(parent) && !before.contains(parent)),
+                how + " opened a Finder window on the parent " + parent + ", not on " + path);
+            require(System.nanoTime() < until, how + " opened no Finder window on " + path + " in "
+                + STEP_SECONDS + " s; Finder shows " + now);
             Thread.sleep(250);
+            now = finderWindows();
         }
-        osascript("tell application \"Finder\" to close (every Finder window whose name is \"" + name + "\")");
+        closeFinderWindow(path);
     }
 
     static void desktop() throws Exception {
@@ -637,12 +696,22 @@ public class GuiSmoke {
             "Desktop does not support OPEN and BROWSE");
         java.nio.file.Path opened = java.nio.file.Files.createTempDirectory("guismoke-open-");
         java.nio.file.Path browsed = java.nio.file.Files.createTempDirectory("guismoke-browse-");
+        String openedPath = folderPath(opened), browsedPath = folderPath(browsed);
+        String parent = folderPath(opened.getParent());
+        java.util.List<String> before = finderWindows();
         try {
             d.open(opened.toFile());
-            finderOpened(opened.getFileName().toString(), "Desktop.open(" + opened + ")");
+            finderOpened(openedPath, parent, before, "Desktop.open(" + opened + ")");
             d.browse(browsed.toUri());
-            finderOpened(browsed.getFileName().toString(), "Desktop.browse(" + browsed.toUri() + ")");
+            finderOpened(browsedPath, parent, before, "Desktop.browse(" + browsed.toUri() + ")");
         } finally {
+            // Close whatever this step opened before its folders go, even after a failure, so a run
+            // leaves no window behind (a deleted folder's window falls back to its parent).
+            for (String w : finderWindows()) {
+                if (!before.contains(w) && (w.equals(openedPath) || w.equals(browsedPath) || w.equals(parent))) {
+                    closeFinderWindow(w);
+                }
+            }
             java.nio.file.Files.deleteIfExists(opened);
             java.nio.file.Files.deleteIfExists(browsed);
         }
