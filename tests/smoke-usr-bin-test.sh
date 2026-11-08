@@ -51,6 +51,10 @@ cat > "$T/bin/open" <<EOF
 #!/bin/sh
 [ "\$1" = -a ] || exit 2
 [ -n "\${FAKE_OPEN_IGNORES:-}" ] && exit 0
+if [ -n "\${FAKE_OPEN_VERSION:-}" ]; then
+  m="\$(dirname "\$3")/gui.marker"
+  printf %s "\$FAKE_OPEN_VERSION" > "\$m"; exit 0
+fi
 (sleep 1; "$J/bin/java" -jar "\$3") > /dev/null 2>&1 &
 EOF
 cat > "$T/bin/ps" <<'EOF'
@@ -62,6 +66,27 @@ echo /System/Library/PrivateFrameworks/PackageKit.framework/Resources/installd
 [ -n "${FAKE_PS_LATER:-}" ] && echo "$FAKE_PS_LATER"
 exit 0
 EOF
+for k in javac jar jarrun; do
+  mkdir "$T/$k"
+  for t in java javac jar; do ln -s "$J/bin/$t" "$T/$k/$t"; done
+done
+rm "$T/javac/javac" "$T/jar/jar" "$T/jarrun/java"
+cat > "$T/javac/javac" <<EOF
+#!/bin/sh
+[ "\$1" = -version ] && { echo "javac 25.0.4"; exit 0; }
+exec "$J/bin/javac" "\$@"
+EOF
+cat > "$T/jar/jar" <<EOF
+#!/bin/sh
+[ "\$1" = --version ] && { echo "jar 25.0.4"; exit 0; }
+exec "$J/bin/jar" "\$@"
+EOF
+cat > "$T/jarrun/java" <<EOF
+#!/bin/sh
+[ "\$1" = -jar ] && { printf 1.6.0_65 > "\$3"; exit 0; }
+exec "$J/bin/java" "\$@"
+EOF
+chmod +x "$T/javac/javac" "$T/jar/jar" "$T/jarrun/java"
 chmod +x "$T/prompt/java" "$T/home/bin/jshell" "$T/bin/java_home" "$T/bin/open" "$T/bin/ps"
 touch "$T/console"
 
@@ -72,7 +97,7 @@ run() {
   env SMOKE_USR_BIN="${U:-$T/ok}" SMOKE_JAVA_HOME_TOOL="$T/bin/java_home" SMOKE_CONSOLE="${C:-$T/console}" \
     SMOKE_OPEN="$T/bin/open" SMOKE_PS="$T/bin/ps" SMOKE_JAR_LAUNCHER="Jar Launcher" SMOKE_JAR_WAIT=10 \
     FAKE_JH_NAME="${NAME:-Mavericks JDK 25}" FAKE_JH_HOME="${H:-$J}" FAKE_PS_N="$T/ps.$n" \
-    FAKE_OPEN_IGNORES="${IGN:-}" FAKE_PS_LATER="${LATER:-}" \
+    FAKE_OPEN_IGNORES="${IGN:-}" FAKE_OPEN_VERSION="${OV:-}" FAKE_PS_LATER="${LATER:-}" \
     sh "$here/smoke-usr-bin.sh" "${H:-$J}" "${V:-$jver}" "$jrev" > "$T/out.$n" 2>&1 || rc=$?
   out="$(cat "$T/out.$n")"
 }
@@ -95,4 +120,8 @@ U="$T/prompt" run; expect "the stub asks to install Java" 1 "asked to install Ja
 V=25.0.4 run; expect "another version answers" 1 "does not report 25.0.4"; V=
 H="$T/home" run; expect "jshell gets 6*7 wrong" 1 "printed '41' for 6*7"; H=
 IGN=1 run; expect "Jar Launcher runs nothing" 1 "wrote no marker within 10 s"; IGN=
+U="$T/javac" run; expect "javac -version is another version" 1 "javac -version is not javac $jver: javac 25.0.4"; U=
+U="$T/jar" run; expect "jar --version is another version" 1 "jar --version is not jar $jver: jar 25.0.4"; U=
+U="$T/jarrun" run; expect "java -jar runs the jar under another java" 1 "java -jar hello.jar ran java.version '1.6.0_65', not $jver"; U=
+OV=1.6.0_65 run; expect "Jar Launcher runs the jar under another java" 1 "ran hello.jar under java.version '1.6.0_65', not $jver"; OV=
 echo "PASS: smoke-usr-bin-test ($n cases)"
