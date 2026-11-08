@@ -340,3 +340,26 @@ that every cited one is defined here). Each says what was decided, why, and what
   the comparison to bytes and needs no JDK to compare with. The cross build never ran that step and
   is unchanged. Cost: the native build's exploded image, which it runs jmod and jlink from, starts a
   little slower. Exit: jmod writes the same bytes whether or not `ModulePackages` is present.
+- **R60** `tests/smoke-mavericks.sh` asserts R44 end to end on 10.9 through `tests/smoke-usr-bin.sh`,
+  with `JAVA_HOME` and `JAVA_VERSION` unset. It checks that:
+  - `java_home -V` lists "Mavericks JDK 25";
+  - `/usr/bin/java`, `javac` and `jar` report our version and compile, jar and run a Main-Class jar;
+  - `$(java_home -v 25)/bin/jshell` evaluates `6*7` (Apple never shipped `/usr/bin/jshell`, and we
+    add nothing to `/usr/bin`);
+  - `JAVA_HOME=$(java_home -v 25) /usr/bin/java` reports our version;
+  - `open -a "Jar Launcher"` on that jar writes its marker;
+  - no stub printed Apple's "No Java runtime present, requesting install.";
+  - no new `Java Updater.app` or `Install*.app` executable appeared (`ps -o comm=`, compared before and
+    after), so PackageKit's ever-running `installd`, and process arguments, never count.
+
+  `open -a` reaches LaunchServices only from this user's GUI login. Where `/dev/console` belongs to
+  anyone else, the Jar Launcher check prints "skipped: no window server" and the rest still runs.
+
+  The script takes stand-in paths, so `tests/smoke-usr-bin-test.sh` runs it off 10.9 against the boot
+  JDK, one broken input per case. Only 10.9 proves Apple's stubs, the installer's real process name
+  and Jar Launcher.
+
+  Cost: the mavericks-vm guest boots to the login window with no one logged in. packer-plugin-macosx's
+  default build sets no password, so it has no auto-login (its `docs/configuration-register.md`,
+  "auto-login"), and there the check always skips. Only the box proves Jar Launcher. Exit: the guest is
+  built with a password and auto-login, and then the skip never prints there.

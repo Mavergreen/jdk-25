@@ -37,6 +37,8 @@ inventory='tests/build-jdk-test.sh gated
 tests/smoke-runtime.sh gated
 tests/jtreg.sh gated
 tests/smoke-mavericks.sh on-target
+tests/smoke-usr-bin.sh gated
+tests/smoke-usr-bin-test.sh gated
 build/toolchain.sh native: the boot JDK, built for this host, and jtreg built with it
 tests/boot-jdk-test.sh native: the boot JDK, built for this host
 tests/package-manifest-test.sh native: stand-in shell scripts; the real image is expanded, never run

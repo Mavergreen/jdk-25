@@ -16,6 +16,9 @@
 #            java-25 -version and javac-25 -version from /usr/local/mavergreen/bin;
 #            /usr/libexec/java_home -v 25 is the .jdk's Contents/Home, and /usr/bin/java -version
 #              reports the installed version;
+#            tests/smoke-usr-bin.sh: java_home -V, /usr/bin/java, javac and jar, jshell from java_home -v 25,
+#              JAVA_HOME=$(java_home -v 25) /usr/bin/java, and Jar Launcher (skipped without a window
+#              server), with no Apple "install Java" prompt or installer process; 77 is a failure;
 #            the integration probe: java_home -V, java_home -v 25, /usr/bin/java -version,
 #              JAVA_HOME=... /usr/bin/javac -version and JAVA_VERSION=1.6 /usr/bin/java -version (Apple's
 #              Java 6, where it is installed), each command, exit status and output appended to
@@ -120,6 +123,10 @@ case "$v" in
   *) fail "/usr/bin/java -version is not $JDK_VERSION: $v" ;;
 esac
 echo "ok /usr/bin/java -version: $(printf '%s\n' "$v" | sed -n 1p)"
+# spec: PORT.md ruling R60 -- before the probe, whose JAVA_VERSION=1.6 may start Apple's installer
+rc=0
+sh "$here/smoke-usr-bin.sh" "$home" "$jver" "$jrev" || rc=$?
+[ "$rc" -eq 0 ] || fail "smoke-usr-bin exited $rc (77, cannot execute, is a failure on this box)"
 
 {
   echo "# integration probe, $(date -u '+%Y-%m-%dT%H:%M:%SZ'), $JDK_VERSION"
