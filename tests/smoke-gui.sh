@@ -7,7 +7,9 @@
 #          pixel resize fullscreen type fonts clipboard dnd badge desktop print close. The run sets the
 #          clipboard and puts its text back, badges the Dock icon and clears it, opens an empty
 #          temporary folder in Finder and closes its window (osascript), and prints one page to a
-#          temporary PostScript file only. It opens nothing in the default browser unless
+#          temporary PostScript file only. A step may print "skip <step>: <why>" instead of its ok line
+#          (clipboard does, when the clipboard holds what it could not put back exactly); that passes
+#          and is named in the PASS line. It opens nothing in the default browser unless
 #          SMOKE_GUI_BROWSE=1, which browses a small temporary file: page there, for the eye. Exit 0 when all pass, 1 naming each failed step on
 #          stderr, 77 when JDK_HOME is unset (run-repo-tests runs this bare), JDK_HOME/bin/java is not
 #          executable, this host's CPU does not run the JDK natively, or nothing on screen can be seen:
@@ -75,9 +77,14 @@ cat "$T/smoke.out"
 for n in $(sed -n 's/^FAIL \([A-Za-z0-9_]*\):.*/\1/p' "$T/smoke.out"); do
   bad "$n" "reported by GuiSmoke: $(grep "^FAIL $n:" "$T/smoke.out" | head -1)"
 done
+skipped=""
 for n in $steps; do
-  grep -q "^ok $n\$" "$T/smoke.out" || bad "$n" "no ok line from GuiSmoke"
+  if grep -q "^skip $n:" "$T/smoke.out"; then
+    skipped="$skipped $n"
+  else
+    grep -q "^ok $n\$" "$T/smoke.out" || bad "$n" "no ok line from GuiSmoke"
+  fi
 done
 [ "$prc" -eq 0 ] || bad exit "GuiSmoke exited $prc"
 [ "$fail" -eq 0 ] || exit 1
-echo "PASS: smoke-gui"
+if [ -n "$skipped" ]; then echo "PASS: smoke-gui (skipped, as their skip lines say:$skipped)"; else echo "PASS: smoke-gui"; fi

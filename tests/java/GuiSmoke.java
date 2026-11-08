@@ -18,8 +18,9 @@
  *   type       Robot types "mvk" into the focused text field;
  *   fonts      CoreText's font families include Lucida Grande, which resolves as itself (not Dialog),
  *              and "Hello" in it draws ink off screen and in the frame's label; with shots, hello.png;
- *   clipboard  a string set on the system clipboard reads back in Java and through /usr/bin/pbpaste
- *              (the AppKit pasteboard), and the clipboard's earlier string is put back;
+ *   clipboard  only on an empty or plain-text clipboard (osascript's clipboard info), which it puts
+ *              back exactly: a string set on it reads back in Java and through /usr/bin/pbpaste (the
+ *              AppKit pasteboard); any other content is left alone and the step prints "skip";
  *   dnd        Robot drags the selected "dragme" from one text field and drops it on another;
  *   badge      Taskbar supports a badge and sets "17" without error, then clears it; with shots, dock.png
  *              shows it, unless the Dock autohides, which the shot line then says;
@@ -31,7 +32,8 @@
  *              be supported; Java has no public API that names the default browser. With
  *              -Dguismoke.browse=true it browses a small file: page and prints what to look for;
  *   print      PrinterJob prints a page to a PostScript file through a StreamPrintService, which never
- *              reaches a printer queue or a dialog; the file starts %!PS-Adobe;
+ *              reaches a printer queue or a dialog; the page's Printable ran, and the file starts
+ *              %!PS-Adobe;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
  * Robot reads the screen in the display's colour space, not the sRGB the panel paints in: on the 10.9
  * box sRGB #219e5b read back as #009d5b. So the first read-back is judged by which channel dominates,
@@ -92,6 +94,31 @@ public class GuiSmoke {
         Failure(String why) { super(why); }
     }
 
+    static final class Skip extends RuntimeException {
+        Skip(String why) { super(why); }
+    }
+
+    // Runs body, then cleanup whatever happens; the body's own failure is the one reported, with a
+    // cleanup failure added to it rather than masking it.
+    static void withCleanup(Step body, Step cleanup, String cleanupWhat) throws Exception {
+        Throwable first = null;
+        try { body.run(); } catch (Throwable t) { first = t; }
+        Throwable second = null;
+        try { cleanup.run(); } catch (Throwable t) { second = t; }
+        if (first != null) {
+            if (second != null) {
+                throw new Failure(why(first) + "; and " + cleanupWhat + " failed too: " + why(second));
+            }
+            if (first instanceof Exception e) throw e;
+            throw (Error) first;
+        }
+        if (second != null) throw new Failure(cleanupWhat + " failed: " + why(second));
+    }
+
+    static String why(Throwable t) {
+        return t instanceof Failure || t instanceof Skip ? t.getMessage() : t.toString();
+    }
+
     interface Step { void run() throws Exception; }
 
     public static void main(String[] args) throws Exception {
@@ -130,6 +157,8 @@ public class GuiSmoke {
         try {
             s.run();
             System.out.println("ok " + name);
+        } catch (Skip k) {
+            System.out.println("skip " + name + ": " + k.getMessage());
         } catch (Throwable t) {
             String why = t instanceof Failure ? t.getMessage() : t.toString();
             System.out.println("FAIL " + name + ": " + why);
@@ -442,12 +471,35 @@ public class GuiSmoke {
         shot("hello.png", r, "\"Hello\" in Lucida Grande (the 10.9 system font: round, open letters, not Helvetica)");
     }
 
+    // The plain-text types AppKit makes from one string; anything else (RTF, an image, files, an
+    // app's own type) Java cannot see all of, so it could not be put back faithfully.
+    static final java.util.Set<String> PLAIN = java.util.Set.of("«class utf8»", "«class ut16»", "«class utxt»", "string", "Unicode text");
+
+    static java.util.List<String> clipboardTypes() throws Exception {
+        String info = osascript("clipboard info");
+        java.util.List<String> types = new java.util.ArrayList<>();
+        String[] parts = info.isBlank() ? new String[0] : info.split(", ");
+        for (int k = 0; k + 1 < parts.length; k += 2) types.add(parts[k]);
+        java.util.Collections.sort(types);
+        return types;
+    }
+
+    // A killed run (smoke-gui's time limit, the watchdog) cannot put the clipboard back and leaves the
+    // test string on it; the step prints the clipboard's types (never its contents) first, so that is
+    // visible.
     static void clipboard() throws Exception {
         java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         java.awt.datatransfer.DataFlavor sf = java.awt.datatransfer.DataFlavor.stringFlavor;
-        String before = cb.isDataFlavorAvailable(sf) ? (String) cb.getData(sf) : null;
+        java.util.List<String> types = clipboardTypes();
+        System.out.println("note clipboard: it holds " + (types.isEmpty() ? "nothing" : "types " + types) + " before the step");
+        for (String t : types) {
+            if (!PLAIN.contains(t)) {
+                throw new Skip("the clipboard holds " + t + ", which this step could not put back exactly, so it is left alone");
+            }
+        }
+        String before = types.isEmpty() ? null : (String) cb.getData(sf);
         String mine = "GuiSmoke clipboard " + System.nanoTime();
-        try {
+        withCleanup(() -> {
             cb.setContents(new java.awt.datatransfer.StringSelection(mine), null);
             long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
             String back = cb.isDataFlavorAvailable(sf) ? (String) cb.getData(sf) : null;
@@ -458,31 +510,45 @@ public class GuiSmoke {
             }
             String pasted = pbpaste();
             require(pasted.equals(mine), "/usr/bin/pbpaste reads \"" + pasted + "\", not \"" + mine + "\": Java's clipboard did not reach the AppKit pasteboard");
-        } finally {
-            restoreClipboard(before);
-        }
+        }, () -> restoreClipboard(cb, before, types), "putting the clipboard back");
+    }
+
+    // pbcopy and pbpaste decode by the locale, so they get a UTF-8 one whatever the caller's is.
+    static ProcessBuilder utf8(String... cmd) {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.environment().put("LC_ALL", "en_US.UTF-8");
+        pb.environment().put("LANG", "en_US.UTF-8");
+        return pb;
     }
 
     static String pbpaste() throws Exception {
-        Process p = new ProcessBuilder("/usr/bin/pbpaste").redirectErrorStream(true).start();
+        Process p = utf8("/usr/bin/pbpaste").redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         require(p.waitFor() == 0, "/usr/bin/pbpaste exited " + p.exitValue());
         return out;
     }
 
-    // Java hands the pasteboard its contents on AppKit's thread, which a prompt exit can outrun, so
-    // the earlier text goes back through pbcopy, which returns only once it is there.
-    static void restoreClipboard(String before) throws Exception {
-        if (before == null) {
-            System.out.println("note clipboard: it held no text before, so it keeps GuiSmoke's string");
-            return;
+    // Java hands the pasteboard its contents on AppKit's thread, which a prompt exit can outrun (that
+    // lost a clipboard once), so the step waits until the types and the text read back as they were.
+    static void restoreClipboard(java.awt.datatransfer.Clipboard cb, String before, java.util.List<String> types) throws Exception {
+        java.awt.datatransfer.Transferable put = before != null
+            ? new java.awt.datatransfer.StringSelection(before)
+            : new java.awt.datatransfer.Transferable() {
+                public java.awt.datatransfer.DataFlavor[] getTransferDataFlavors() { return new java.awt.datatransfer.DataFlavor[0]; }
+                public boolean isDataFlavorSupported(java.awt.datatransfer.DataFlavor f) { return false; }
+                public Object getTransferData(java.awt.datatransfer.DataFlavor f) throws java.awt.datatransfer.UnsupportedFlavorException {
+                    throw new java.awt.datatransfer.UnsupportedFlavorException(f);
+                }
+            };
+        cb.setContents(put, null);
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
+        while (true) {
+            java.util.List<String> now = clipboardTypes();
+            boolean same = before == null ? now.isEmpty() : now.equals(types) && pbpaste().equals(before);
+            if (same) return;
+            require(System.nanoTime() < until, "the clipboard did not go back as it was in " + STEP_SECONDS + " s: it holds " + now + ", not " + types);
+            Thread.sleep(100);
         }
-        Process p = new ProcessBuilder("/usr/bin/pbcopy").start();
-        try (java.io.OutputStream os = p.getOutputStream()) {
-            os.write(before.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
-        require(p.waitFor() == 0, "/usr/bin/pbcopy exited " + p.exitValue() + " putting the clipboard back");
-        require(pbpaste().equals(before), "the clipboard was not put back: /usr/bin/pbpaste reads something else");
     }
 
     static Point centreOf(java.awt.Component c) throws Exception {
@@ -612,15 +678,17 @@ public class GuiSmoke {
         require(java.awt.Taskbar.isTaskbarSupported(), "Taskbar is not supported");
         java.awt.Taskbar tb = java.awt.Taskbar.getTaskbar();
         require(tb.isSupported(java.awt.Taskbar.Feature.ICON_BADGE_TEXT), "Taskbar does not support ICON_BADGE_TEXT");
-        tb.setIconBadge("17");
-        robot.delay(1000);
-        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
-            .getDefaultConfiguration().getBounds();
         String see = dockAutohides()
-            ? "nothing to judge: this Dock autohides (com.apple.dock autohide = 1), so the shot cannot show the badge; setIconBadge(\"17\") was supported and threw nothing"
+            ? "nothing to judge by eye: this Dock autohides (com.apple.dock autohide = 1); setIconBadge(\"17\") was supported and threw nothing"
             : "the Dock's GuiSmoke (java) icon wears a red badge reading 17";
-        shot("dock.png", screen, see);
-        tb.setIconBadge(null);
+        System.out.println("note badge: " + see);
+        withCleanup(() -> {
+            tb.setIconBadge("17");
+            robot.delay(1000);
+            Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                .getDefaultConfiguration().getBounds();
+            shot("dock.png", screen, see);
+        }, () -> tb.setIconBadge(null), "clearing the badge");
     }
 
     // Read, never changed: the maintainer's Dock setting decides whether dock.png can show anything.
@@ -638,7 +706,7 @@ public class GuiSmoke {
         java.util.List<String> cmd = new java.util.ArrayList<>();
         cmd.add("/usr/bin/osascript");
         for (String l : lines) { cmd.add("-e"); cmd.add(l); }
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+        Process p = utf8(cmd.toArray(new String[0])).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
         require(p.waitFor() == 0, "/usr/bin/osascript exited " + p.exitValue() + ": " + out);
         return out;
@@ -668,7 +736,7 @@ public class GuiSmoke {
             "tell application \"Finder\"",
             "  repeat with w in (get every Finder window)",
             "    try",
-            "      if POSIX path of (target of w as alias) is \"" + path + "\" then close w",
+            "      if POSIX path of (target of w as alias) is \"" + path.replace("\\", "\\\\").replace("\"", "\\\"") + "\" then close w",
             "    end try",
             "  end repeat",
             "end tell");
@@ -700,20 +768,22 @@ public class GuiSmoke {
         java.nio.file.Path opened = java.nio.file.Files.createTempDirectory("guismoke-open-");
         String openedPath = folderPath(opened);
         String parent = folderPath(opened.getParent());
-        java.util.List<String> before = finderWindows();
-        try {
+        java.util.concurrent.atomic.AtomicReference<java.util.List<String>> before = new java.util.concurrent.atomic.AtomicReference<>();
+        // Close whatever this step opened before its folder goes, even after a failure, so a run
+        // leaves no window behind (a deleted folder's window falls back to its parent); the close and
+        // the delete are guarded apart, so one failing does not skip the other.
+        withCleanup(() -> {
+            before.set(finderWindows());
             d.open(opened.toFile());
-            finderOpened(openedPath, parent, before, "Desktop.open(" + opened + ")");
-        } finally {
-            // Close whatever this step opened before its folder goes, even after a failure, so a run
-            // leaves no window behind (a deleted folder's window falls back to its parent).
+            finderOpened(openedPath, parent, before.get(), "Desktop.open(" + opened + ")");
+        }, () -> withCleanup(() -> {
+            java.util.List<String> was = before.get();
             for (String w : finderWindows()) {
-                if (!before.contains(w) && (w.equals(openedPath) || w.equals(parent))) {
+                if (w.equals(openedPath) || (was != null && !was.contains(w) && w.equals(parent))) {
                     closeFinderWindow(w);
                 }
             }
-            java.nio.file.Files.deleteIfExists(opened);
-        }
+        }, () -> java.nio.file.Files.deleteIfExists(opened), "deleting " + opened), "closing its Finder window");
         // A smoke run must not open pages in the maintainer's own browser (the controller's ruling,
         // 2026-11-07): browse is called only when asked for, and judged by eye.
         if (Boolean.getBoolean("guismoke.browse")) {
@@ -734,6 +804,7 @@ public class GuiSmoke {
             javax.print.DocFlavor.SERVICE_FORMATTED.PRINTABLE, "application/postscript");
         require(fs.length > 0, "no PostScript StreamPrintServiceFactory");
         java.io.File out = java.io.File.createTempFile("guismoke-print-", ".ps");
+        final boolean[] drew = {false};
         try {
             try (java.io.FileOutputStream os = new java.io.FileOutputStream(out)) {
                 javax.print.StreamPrintService svc = fs[0].getPrintService(os);
@@ -745,6 +816,7 @@ public class GuiSmoke {
                     "the PrinterJob's service is " + job.getPrintService() + ", not the stream: refusing to print");
                 job.setPrintable((g, pf, page) -> {
                     if (page > 0) return java.awt.print.Printable.NO_SUCH_PAGE;
+                    drew[0] = true;
                     g.setFont(new java.awt.Font("Lucida Grande", java.awt.Font.PLAIN, 24));
                     g.drawString("GuiSmoke", (int) pf.getImageableX() + 36, (int) pf.getImageableY() + 72);
                     return java.awt.print.Printable.PAGE_EXISTS;
@@ -753,6 +825,7 @@ public class GuiSmoke {
             }
             byte[] head = java.util.Arrays.copyOf(java.nio.file.Files.readAllBytes(out.toPath()), 10);
             String h = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1);
+            require(drew[0], "the job never asked the Printable to draw page 0");
             require(h.startsWith("%!PS-Adobe"), "the printed file starts \"" + h + "\", not %!PS-Adobe");
             require(out.length() > 1000, "the printed file is " + out.length() + " bytes, not over 1000");
         } finally {

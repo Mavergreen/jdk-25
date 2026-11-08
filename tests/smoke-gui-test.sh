@@ -74,6 +74,8 @@ grep -F 'java.awt.headless' "$T/log" > /dev/null && fail "every step ok: the run
 grep -F -- '-cp' "$T/log" | grep -F 'GuiSmoke' > /dev/null || fail "every step ok: java did not run GuiSmoke: $(cat "$T/log")"
 printf 'ok headful\nok frame\nok screenmenubar\nok paint\nFAIL pixel: Robot.getPixelColor is black\n' > "$T/out"
 run FAKE_RC=1; expect "a step fails" 1 "FAIL pixel: reported by GuiSmoke: FAIL pixel: Robot.getPixelColor is black"
+echo "$ALL_OK" | sed 's/^ok clipboard$/skip clipboard: the clipboard holds «class RTF », which this step could not put back exactly/' > "$T/out"
+run; expect "a step skips" 0 "PASS: smoke-gui (skipped, as their skip lines say: clipboard)"
 echo "$ALL_OK" | grep -v '^ok type$' > "$T/out"
 run; expect "a step is missing" 1 "FAIL type: no ok line from GuiSmoke"
 echo "$ALL_OK" > "$T/out"
