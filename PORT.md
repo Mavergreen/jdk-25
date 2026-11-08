@@ -33,6 +33,7 @@ what, why on 10.9, provenance and exit.
 | `patches/0018-nio-normalize-paths-before-apfs.patch` | `jdk.nio.path.useNormalizationFormD` defaults to true before macOS 10.13 (HFS+ only); an explicit `-D` still decides (ruling R27) | none while 10.9 is supported |
 | `patches/0019-build-tool-ldflags.patch` | native build tools (`TARGET_TYPE := BUILD`) add `MAVERGREEN_BUILD_TOOL_LDFLAGS` to their links when it is set, which `build/build-jdk.sh` does on 10.9 only (ruling R56) | upstream gives a native build's build tools their own extra LDFLAGS |
 | `patches/0020-build-no-exploded-image-optimize.patch` | a native build no longer optimizes the exploded image, which a cross build never did, so its jmods' `module-info.class` are the cross build's bytes (ruling R59) | upstream's jmod writes the same bytes whether or not `ModulePackages` is already present |
+| `patches/0021-java2d-metal-request-prints-opengl.patch` | `-Dsun.java2d.metal=true` prints one line on stderr saying it is ignored, then Java2D uses OpenGL as `0015` makes it; `tests/no-metal-test.sh` asserts no Mach-O links or needs Metal | never |
 
 Parked for release 2, not applied (`patches-gui/`, same headers): `0002-appkit-nsstring-substring`,
 `0003-appkit-window-tabbing-fullsize`, `0005-appkit-tray-icon-nsbutton`, `0006-a11y-legacy-superclass`,

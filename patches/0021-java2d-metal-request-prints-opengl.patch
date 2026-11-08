@@ -1,0 +1,21 @@
+What: -Dsun.java2d.metal=true (or any spelling MacOSFlags reads as true) prints one line on stderr,
+  saying it is ignored and Java2D uses OpenGL, which it then does as patches/0015 already makes it.
+Why on 10.9: Metal arrived in 10.11, so patches/0002 leaves the Metal pipeline unbuilt and 0015 makes
+  OpenGL the only one; without this line a Metal request is dropped silently.
+Provenance: ours.
+Exit: never (no Metal on 10.9).
+
+--- a/src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java
++++ b/src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java
+@@ -86,6 +86,11 @@
+         // The legacy build has no Metal backend, even if explicitly requested.
+         metalEnabled = false;
+         metalVerbose = isBooleanPropTrueVerbose("sun.java2d.metal");
++        // Mavergreen: a Metal request says, in one line, that it gets OpenGL instead.
++        if (getBooleanProp("sun.java2d.metal", PropertyState.UNSPECIFIED) == PropertyState.ENABLED) {
++            System.err.println("Java2D: sun.java2d.metal=" + System.getProperty("sun.java2d.metal")
++                + " ignored: Mac OS X 10.9 has no Metal, so this JDK uses OpenGL");
++        }
+         oglVerbose = isBooleanPropTrueVerbose("sun.java2d.opengl");
+         oglEnabled = CGLGraphicsConfig.isCGLAvailable();
+         if (!oglEnabled) {
