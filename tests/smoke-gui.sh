@@ -5,9 +5,10 @@
 #          without -Djava.awt.headless, so the JDK's own default decides (gui: headful in an Aqua
 #          session). It requires an "ok <step>" line for each of: headful frame screenmenubar paint
 #          pixel resize fullscreen type fonts clipboard dnd badge desktop print close. The run sets the
-#          clipboard and puts its text back, badges the Dock icon and clears it, opens two empty
-#          temporary folders in Finder and closes their windows (osascript), and prints one page to a
-#          temporary PostScript file only. Exit 0 when all pass, 1 naming each failed step on
+#          clipboard and puts its text back, badges the Dock icon and clears it, opens an empty
+#          temporary folder in Finder and closes its window (osascript), and prints one page to a
+#          temporary PostScript file only. It opens nothing in the default browser unless
+#          SMOKE_GUI_BROWSE=1, which browses a small temporary file: page there, for the eye. Exit 0 when all pass, 1 naming each failed step on
 #          stderr, 77 when JDK_HOME is unset (run-repo-tests runs this bare), JDK_HOME/bin/java is not
 #          executable, this host's CPU does not run the JDK natively, or nothing on screen can be seen:
 #            no window server: /dev/console (SMOKE_CONSOLE) is not this user's, as smoke-usr-bin decides;
@@ -64,7 +65,7 @@ trap 'exit 1' HUP INT TERM
   || { cat "$T/javac.out" >&2; echo "FAIL compile: javac could not compile tests/java/GuiSmoke.java" >&2; exit 1; }
 
 prc=0
-"$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} ${SMOKE_GUI_TRACE:+-Dguismoke.trace=true} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
+"$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} ${SMOKE_GUI_TRACE:+-Dguismoke.trace=true} ${SMOKE_GUI_BROWSE:+-Dguismoke.browse=true} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
 pid=$!
 (sleep "${SMOKE_GUI_SECONDS:-240}"; kill -9 "$pid" 2> /dev/null) > /dev/null 2>&1 &
 guard=$!

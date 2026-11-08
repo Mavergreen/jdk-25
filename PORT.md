@@ -425,3 +425,13 @@ that every cited one is defined here). Each says what was decided, why, and what
   exercises that by hand. No untested `CPrinterJob` patch (the controller's ruling, 2026-11-07): a
   wrong one prints on a real printer. Exit: a patch that makes `CPrinterJob` honour a `Destination`
   attribute, tested where no printer queue exists, if the maintainer wants that path automated.
+- **R64** GuiSmoke never calls `Desktop.browse` unless asked (`SMOKE_GUI_BROWSE=1`), the controller's
+  ruling of 2026-11-07. `CDesktopPeer`'s browse sends any URI to the default browser:
+  `URLForApplicationToOpenURL:` on `https:`, then that app opens it. On the 10.9 box that's a running
+  Firefox fork, so a `file:` folder URL went to the maintainer's browser, not Finder. By default the
+  step requires only that `BROWSE` is supported, and says that Java has no public API naming the
+  default browser. `Desktop.open` still opens a temporary folder in Finder and closes it.
+
+  Cost: browse's LaunchServices path runs only in the opt-in run, which browses a small `file:` page
+  and asks for an eye check: Task 19's hands-on pass. Exit: none needed; a smoke must not drive the
+  maintainer's own browser.

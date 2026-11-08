@@ -23,10 +23,13 @@
  *   dnd        Robot drags the selected "dragme" from one text field and drops it on another;
  *   badge      Taskbar supports a badge and sets "17" without error, then clears it; with shots, dock.png
  *              shows it, unless the Dock autohides, which the shot line then says;
- *   desktop    Desktop.open of a new empty folder and Desktop.browse of another's file: URL each open a
- *              Finder window on exactly that folder (LaunchServices, patches/0006), not its parent, as
- *              /usr/bin/osascript reads each window's target; the step closes every window it opened,
- *              even after a failure, before it deletes the folders;
+ *   desktop    Desktop.open of a new empty folder opens a Finder window on exactly that folder
+ *              (LaunchServices, patches/0006), not its parent, as /usr/bin/osascript reads each window's
+ *              target; the step closes every window it opened, even after a failure, before it deletes
+ *              the folder. Desktop.browse sends any URL to the default browser (CDesktopPeer asks
+ *              LaunchServices which app opens https:), so by default the step only requires BROWSE to
+ *              be supported; Java has no public API that names the default browser. With
+ *              -Dguismoke.browse=true it browses a small file: page and prints what to look for;
  *   print      PrinterJob prints a page to a PostScript file through a StreamPrintService, which never
  *              reaches a printer queue or a dialog; the file starts %!PS-Adobe;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
@@ -695,25 +698,34 @@ public class GuiSmoke {
         require(d.isSupported(java.awt.Desktop.Action.OPEN) && d.isSupported(java.awt.Desktop.Action.BROWSE),
             "Desktop does not support OPEN and BROWSE");
         java.nio.file.Path opened = java.nio.file.Files.createTempDirectory("guismoke-open-");
-        java.nio.file.Path browsed = java.nio.file.Files.createTempDirectory("guismoke-browse-");
-        String openedPath = folderPath(opened), browsedPath = folderPath(browsed);
+        String openedPath = folderPath(opened);
         String parent = folderPath(opened.getParent());
         java.util.List<String> before = finderWindows();
         try {
             d.open(opened.toFile());
             finderOpened(openedPath, parent, before, "Desktop.open(" + opened + ")");
-            d.browse(browsed.toUri());
-            finderOpened(browsedPath, parent, before, "Desktop.browse(" + browsed.toUri() + ")");
         } finally {
-            // Close whatever this step opened before its folders go, even after a failure, so a run
+            // Close whatever this step opened before its folder goes, even after a failure, so a run
             // leaves no window behind (a deleted folder's window falls back to its parent).
             for (String w : finderWindows()) {
-                if (!before.contains(w) && (w.equals(openedPath) || w.equals(browsedPath) || w.equals(parent))) {
+                if (!before.contains(w) && (w.equals(openedPath) || w.equals(parent))) {
                     closeFinderWindow(w);
                 }
             }
             java.nio.file.Files.deleteIfExists(opened);
-            java.nio.file.Files.deleteIfExists(browsed);
+        }
+        // A smoke run must not open pages in the maintainer's own browser (the controller's ruling,
+        // 2026-11-07): browse is called only when asked for, and judged by eye.
+        if (Boolean.getBoolean("guismoke.browse")) {
+            String mark = "GuiSmoke browse " + System.nanoTime();
+            java.nio.file.Path page = java.nio.file.Files.createTempFile("guismoke-browse-", ".html");
+            java.nio.file.Files.writeString(page, "<!doctype html><title>" + mark + "</title><h1>" + mark + "</h1>\n");
+            d.browse(page.toUri());
+            System.out.println("look desktop: your default browser should show a page reading \"" + mark
+                + "\" (" + page.toUri() + "); close that tab, then delete " + page);
+        } else {
+            System.out.println("note desktop: Desktop.browse not called, so no page opens in your browser;"
+                + " BROWSE is supported, and Java cannot name the default browser (SMOKE_GUI_BROWSE=1 browses a page)");
         }
     }
 
