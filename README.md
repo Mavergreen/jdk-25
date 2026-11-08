@@ -5,9 +5,8 @@ Java (based on OpenJDK) for Mac OS X 10.9 Mavericks.
 ## GUI included
 
 AWT, Swing and Java2D work: Java programs open native-looking windows, put their menus in the menu
-bar at the top of the screen, and draw through OpenGL (Mac OS X 10.9 has no Metal). A program run
-without a window server, such as one started over ssh with nobody logged in at the screen, is
-headless, as on any Mac.
+bar at the top of the screen, and draw through OpenGL (Mac OS X 10.9 has no Metal). Opening a window
+needs someone logged in at the Mac.
 
 How the GUI is tested:
 
@@ -25,4 +24,5 @@ How the GUI is tested:
 - **VoiceOver:** on 10.9 it reads Java's menus and window titles but cannot reach the controls inside
   a Swing window.
 - **Printing to a file:** use the PDF button in the Mac print dialog. Java's own cross-platform print
-  dialog (`JTable`'s Print uses it) can send a Print to File job to your printer instead.
+  dialog (`JTable`'s Print uses it) may send a Print to File job to your printer instead: we read
+  that in the source but have not tried it.

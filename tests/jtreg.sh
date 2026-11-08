@@ -4,8 +4,8 @@
 #          [JTREG_NATIVEPATH=<test natives>]
 #          sh tests/jtreg.sh <JDK_HOME> <known-failures-file>...
 #          Runs a jtreg conformance subset of the pinned jdk25u source's own tests against <JDK_HOME>,
-#          headless where there is no window server (the mavericks-vm guest), and passes only when every test that fails is one the known-failures files list and
-#          every listed test ran. The files are read together: tests/known-failures/x86_64-10.9.txt is the
+#          and passes only when every test that fails is one the known-failures files list and every
+#          listed test ran. The files are read together: tests/known-failures/x86_64-10.9.txt is the
 #          release gate's, for a clean single-NIC 10.9 like the mavericks-vm guest, and a host's own
 #          overlay adds what fails only there, such as
 #            sh tests/jtreg.sh JDK tests/known-failures/x86_64-10.9.txt tests/known-failures/x86_64-10.9-multihomed-host.txt
@@ -24,10 +24,10 @@
 #                     directories it names), then java/nio, java/net, java/util/concurrent and
 #                     javax/net/ssl whole: the libc-facing code where a 10.9 port can break (files,
 #                     selectors, sockets, DNS, threads, TLS). tier1 itself has only java/nio/Buffer of these.
-#          Every run excludes keyword headful (no display in the guest, so the JDK is headless there), and also native (tests
-#          whose JNI libraries come from a test image) unless JTREG_NATIVEPATH names the test natives
-#          build/build-jdk.sh leaves in the build root's test-natives: then each root runs them with
-#          -nativepath:<JTREG_NATIVEPATH>/<root>/jtreg/native. Every run passes the options make test
+#          Every run excludes keyword headful (the guest has no window server), and also native
+#          (tests whose JNI libraries come from a test image) unless JTREG_NATIVEPATH names the test
+#          natives build/build-jdk.sh leaves in the build root's test-natives: then each root runs
+#          them with -nativepath:<JTREG_NATIVEPATH>/<root>/jtreg/native. Every run passes the options make test
 #          uses: -agentvm, -automatic, -ignore:quiet, -timeoutFactor:4, -retain:fail,error, and
 #          MaxRAMPercentage 25/<conc> per test JVM.
 #          JTREG_HOME defaults to build/toolchain.sh's jdk_jtreg built with <JDK_HOME>; JTREG_SRC to the
