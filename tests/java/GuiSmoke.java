@@ -1,7 +1,7 @@
 /*
  * GuiSmoke: the headful smoke tests/smoke-gui.sh runs on Mac OS X 10.9 under a console login.
  * Each step prints "ok <step>" or "FAIL <step>: <why>"; the first failure ends the run with exit 1,
- * and a watchdog ends a hung run with exit 2. Steps, in order:
+ * and a watchdog ends a hung run with exit 2 (after 300 s). Steps, in order:
  *   headful    GraphicsEnvironment is not headless and Java2D's pipeline is OpenGL (patches/0015);
  *   frame      a JFrame with a JMenuBar, a JTextField and a custom-painted JPanel is showing, and
  *              the application is asked to the front (Desktop.requestForeground);
@@ -25,9 +25,11 @@
  *   badge      Taskbar supports a badge and sets "17" without error, then clears it; with shots, dock.png
  *              shows it, unless the Dock autohides, which the shot line then says;
  *   desktop    Desktop.open of a new empty folder opens a Finder window on exactly that folder
- *              (LaunchServices, patches/0006), not its parent, as /usr/bin/osascript reads each window's
- *              target; the step closes every window it opened, even after a failure, before it deletes
- *              the folder. Desktop.browse sends any URL to the default browser (CDesktopPeer asks
+ *              (LaunchServices, patches/0006), not its parent, within 60 s, as /usr/bin/osascript reads
+ *              each window's target; a window that comes in the 15 s after that fails the step by name
+ *              and is closed; the step closes every window it opened, even after a failure, before it
+ *              deletes the folder. open and browse are reported apart, and a failing open does not
+ *              keep browse from running. Desktop.browse sends any URL to the default browser (CDesktopPeer asks
  *              LaunchServices which app opens https:), so by default the step only requires BROWSE to
  *              be supported; Java has no public API that names the default browser. With
  *              -Dguismoke.browse=true it browses a small file: page and prints what to look for;
@@ -133,8 +135,8 @@ public class GuiSmoke {
             return;
         }
         Thread watchdog = new Thread(() -> {
-            try { Thread.sleep(TimeUnit.SECONDS.toMillis(180)); } catch (InterruptedException e) { return; }
-            System.out.println("FAIL watchdog: GuiSmoke did not finish in 180 s");
+            try { Thread.sleep(TimeUnit.SECONDS.toMillis(300)); } catch (InterruptedException e) { return; }
+            System.out.println("FAIL watchdog: GuiSmoke did not finish in 300 s");
             System.out.flush();
             Runtime.getRuntime().halt(2);
         });
@@ -794,14 +796,38 @@ public class GuiSmoke {
         return p.toRealPath().toString() + "/";
     }
 
+    // A loaded 10.9 box's Finder took over 20 s to show Desktop.open's window (Task 19), so it gets a
+    // minute; a window that comes in the grace after that is named in the failure, and closed.
+    static final long FINDER_SECONDS = 60;
+    static final long FINDER_GRACE_SECONDS = 15;
+
+    static boolean awaitFinderWindow(String path, long seconds) throws Exception {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        while (true) {
+            if (finderWindows().contains(path)) return true;
+            if (System.nanoTime() >= until) return false;
+            Thread.sleep(250);
+        }
+    }
+
     static void finderOpened(String path, String parent, java.util.List<String> before, String how) throws Exception {
-        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
+        long start = System.nanoTime();
+        long until = start + TimeUnit.SECONDS.toNanos(FINDER_SECONDS);
         java.util.List<String> now = finderWindows();
         while (!now.contains(path)) {
             require(!(now.contains(parent) && !before.contains(parent)),
                 how + " opened a Finder window on the parent " + parent + ", not on " + path);
-            require(System.nanoTime() < until, how + " opened no Finder window on " + path + " in "
-                + STEP_SECONDS + " s; Finder shows " + now);
+            if (System.nanoTime() >= until) {
+                java.util.List<String> shown = now;
+                if (awaitFinderWindow(path, FINDER_GRACE_SECONDS)) {
+                    long late = (System.nanoTime() - start) / 1_000_000_000L;
+                    closeFinderWindow(path);
+                    throw new Failure(how + " opened its Finder window on " + path + " only after about " + late
+                        + " s, past the " + FINDER_SECONDS + " s allowed (a loaded Finder); the window was closed");
+                }
+                throw new Failure(how + " opened no Finder window on " + path + " in " + (FINDER_SECONDS + FINDER_GRACE_SECONDS)
+                    + " s; Finder shows " + shown);
+            }
             Thread.sleep(250);
             now = finderWindows();
         }
@@ -813,10 +839,24 @@ public class GuiSmoke {
         java.awt.Desktop d = java.awt.Desktop.getDesktop();
         require(d.isSupported(java.awt.Desktop.Action.OPEN) && d.isSupported(java.awt.Desktop.Action.BROWSE),
             "Desktop does not support OPEN and BROWSE");
+        // open and browse are reported apart: a failing open does not keep browse from running.
+        Throwable openFailed = null;
+        try { desktopOpen(d); } catch (Throwable t) { openFailed = t; }
+        Throwable browseFailed = null;
+        try { desktopBrowse(d); } catch (Throwable t) { browseFailed = t; }
+        if (openFailed != null && browseFailed != null) {
+            throw new Failure("open: " + why(openFailed) + "; browse: " + why(browseFailed));
+        }
+        if (openFailed != null) throw new Failure("open: " + why(openFailed) + (Boolean.getBoolean("guismoke.browse") ? "; browse ran (see its look line)" : ""));
+        if (browseFailed != null) throw new Failure("browse: " + why(browseFailed));
+    }
+
+    static void desktopOpen(java.awt.Desktop d) throws Exception {
         java.nio.file.Path opened = java.nio.file.Files.createTempDirectory("guismoke-open-");
         String openedPath = folderPath(opened);
         String parent = folderPath(opened.getParent());
         java.util.concurrent.atomic.AtomicReference<java.util.List<String>> before = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean seen = new java.util.concurrent.atomic.AtomicBoolean();
         // Close whatever this step opened before its folder goes, even after a failure, so a run
         // leaves no window behind (a deleted folder's window falls back to its parent); the close and
         // the delete are guarded apart, so one failing does not skip the other.
@@ -824,14 +864,20 @@ public class GuiSmoke {
             before.set(finderWindows());
             d.open(opened.toFile());
             finderOpened(openedPath, parent, before.get(), "Desktop.open(" + opened + ")");
+            seen.set(true);
         }, () -> withCleanup(() -> {
             java.util.List<String> was = before.get();
+            // a window Finder shows only now, after a failure, is closed before its folder goes
+            if (!seen.get() && !finderWindows().contains(openedPath)) awaitFinderWindow(openedPath, 5);
             for (String w : finderWindows()) {
                 if (w.equals(openedPath) || (was != null && !was.contains(w) && w.equals(parent))) {
                     closeFinderWindow(w);
                 }
             }
         }, () -> java.nio.file.Files.deleteIfExists(opened), "deleting " + opened), "closing its Finder window");
+    }
+
+    static void desktopBrowse(java.awt.Desktop d) throws Exception {
         // A smoke run must not open pages in the maintainer's own browser (the controller's ruling,
         // 2026-11-07): browse is called only when asked for, and judged by eye.
         if (Boolean.getBoolean("guismoke.browse")) {

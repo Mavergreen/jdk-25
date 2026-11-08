@@ -30,7 +30,7 @@
 #          VoiceOver (PORT.md ruling R61) and stays open until it is closed; this script then requires
 #          no ok lines, sets no time limit, and exits with GuiSmoke's own status.
 #          A failed dnd prints its trace (trace dnd: lines, what AWT, the drag source and the drop target
-#          saw); SMOKE_GUI_TRACE=1 prints it on a pass too. GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
+#          saw); SMOKE_GUI_TRACE=1 prints it on a pass too. GuiSmoke stops itself after 300 s; SMOKE_GUI_SECONDS (default 360)
 #          bounds the whole run.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -78,7 +78,7 @@ fi
 prc=0
 "$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} ${SMOKE_GUI_TRACE:+-Dguismoke.trace=true} ${SMOKE_GUI_BROWSE:+-Dguismoke.browse=true} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
 pid=$!
-(sleep "${SMOKE_GUI_SECONDS:-240}"; kill -9 "$pid" 2> /dev/null) > /dev/null 2>&1 &
+(sleep "${SMOKE_GUI_SECONDS:-360}"; kill -9 "$pid" 2> /dev/null) > /dev/null 2>&1 &
 guard=$!
 wait "$pid" || prc=$?
 kill "$guard" 2> /dev/null || true
