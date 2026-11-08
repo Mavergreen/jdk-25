@@ -3,19 +3,30 @@
  * Each step prints "ok <step>" or "FAIL <step>: <why>"; the first failure ends the run with exit 1,
  * and a watchdog ends a hung run with exit 2. Steps, in order:
  *   headful    GraphicsEnvironment is not headless and Java2D's pipeline is OpenGL (patches/0015);
- *   frame      a JFrame with a JMenuBar, a JTextField and a custom-painted JPanel is showing;
- *   menubar    the menu bar is showing, with its one menu;
+ *   frame      a JFrame with a JMenuBar, a JTextField and a custom-painted JPanel is showing, and
+ *              the application is asked to the front (Desktop.requestForeground);
+ *   screenmenubar  with apple.laf.useScreenMenuBar=true (set first thing), Aqua gave the frame an AWT
+ *              MenuBar (com.apple.laf.ScreenMenuBar, which AppKit shows as the screen's menu bar)
+ *              holding the one menu, and the JMenuBar takes no height in the window; with
+ *              -Dguismoke.shots=DIR it also saves DIR/screenmenubar.png, the screen's top strip, to
+ *              check by eye that the menu is in the screen's menu bar;
  *   paint      the panel's paintComponent ran;
- *   pixel      Robot.getPixelColor at the panel's centre reads the panel's colour;
- *   resize     the frame grows, the panel follows, and the pixel at its new centre still reads true;
+ *   pixel      Robot.getPixelColor at the panel's centre reads green over red and blue; repainted with
+ *              a red over green and blue, it reads red; back to green, it reads the first value again;
+ *   resize     the frame grows, the panel follows, and the pixel at its new centre reads that value;
  *   fullscreen the frame becomes the screen's full-screen window, fills the screen, and comes back;
  *   type       Robot types "mvk" into the focused text field;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
+ * Robot reads the screen in the display's colour space, not the sRGB the panel paints in: on the 10.9
+ * box sRGB #219e5b read back as #009d5b. So the first read-back is judged by which channel dominates,
+ * which a display profile keeps for a saturated colour, and every later one against that first read.
+ * A black, unpainted (window grey) or wrongly coloured panel still fails.
  */
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Graphics;
+import java.awt.MenuBar;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
 import java.awt.Point;
@@ -38,9 +49,16 @@ import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
 public class GuiSmoke {
-    // An uncommon colour, so the read-back cannot match a default background by chance.
+    // Saturated and uncommon, so a display profile keeps the dominant channel and no default
+    // background matches by chance; ALT swaps the green and red channels.
     static final Color FILL = new Color(0x21, 0x9e, 0x5b);
+    static final Color ALT = new Color(0x9e, 0x21, 0x5b);
     static final int TOLERANCE = 12;
+    static final int MARGIN_OVER_RED_OR_GREEN = 60;
+    static final int MARGIN_OVER_BLUE = 30;
+    static final int DOMINANT_AT_LEAST = 100;
+    static volatile Color current = FILL;
+    static volatile Color seen;
     static final long STEP_SECONDS = 20;
 
     static JFrame frame;
@@ -58,6 +76,8 @@ public class GuiSmoke {
     interface Step { void run() throws Exception; }
 
     public static void main(String[] args) throws Exception {
+        // Aqua reads it when it installs a JMenuBar's UI, so before any Swing component exists.
+        System.setProperty("apple.laf.useScreenMenuBar", "true");
         Thread watchdog = new Thread(() -> {
             try { Thread.sleep(TimeUnit.SECONDS.toMillis(180)); } catch (InterruptedException e) { return; }
             System.out.println("FAIL watchdog: GuiSmoke did not finish in 180 s");
@@ -69,7 +89,7 @@ public class GuiSmoke {
 
         step("headful", GuiSmoke::headful);
         step("frame", GuiSmoke::frame);
-        step("menubar", GuiSmoke::menubar);
+        step("screenmenubar", GuiSmoke::screenmenubar);
         step("paint", GuiSmoke::paint);
         step("pixel", GuiSmoke::pixel);
         step("resize", GuiSmoke::resize);
@@ -141,7 +161,7 @@ public class GuiSmoke {
             panel = new JPanel() {
                 @Override protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
-                    g.setColor(FILL);
+                    g.setColor(current);
                     g.fillRect(0, 0, getWidth(), getHeight());
                     painted.countDown();
                 }
@@ -155,6 +175,7 @@ public class GuiSmoke {
             frame.setVisible(true);
             return null;
         });
+        foreground();
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
         while (!onEdt(() -> frame.isShowing() && panel.isShowing())) {
             require(System.nanoTime() < until, "the frame is not showing after " + STEP_SECONDS + " s");
@@ -163,9 +184,35 @@ public class GuiSmoke {
         settle();
     }
 
-    static void menubar() throws Exception {
-        require(onEdt(() -> bar.isShowing()), "the JMenuBar is not showing");
-        require(onEdt(() -> bar.getMenuCount()) == 1, "the JMenuBar has " + onEdt(() -> bar.getMenuCount()) + " menus, not 1");
+    static void foreground() {
+        // A process started from a shell (ssh, a script) is not the active application, and macOS
+        // gives focus and the screen's menu bar only to the active one; Desktop asks AppKit for it.
+        if (java.awt.Desktop.isDesktopSupported()
+                && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
+            java.awt.Desktop.getDesktop().requestForeground(true);
+        }
+    }
+
+    static void screenmenubar() throws Exception {
+        MenuBar mb = onEdt(() -> frame.getMenuBar());
+        require(mb != null, "with apple.laf.useScreenMenuBar=true the frame has no AWT MenuBar: the JMenuBar did not go to the screen's menu bar");
+        require(mb.getClass().getName().equals("com.apple.laf.ScreenMenuBar"),
+            "the frame's MenuBar is a " + mb.getClass().getName() + ", not Aqua's com.apple.laf.ScreenMenuBar");
+        require(mb.getMenuCount() == 1 && "Smoke".equals(mb.getMenu(0).getLabel()),
+            "the screen menu bar holds " + mb.getMenuCount() + " menu(s)"
+            + (mb.getMenuCount() > 0 ? ", the first \"" + mb.getMenu(0).getLabel() + "\"" : "") + ", not the one \"Smoke\"");
+        int h = onEdt(() -> bar.getHeight());
+        require(h == 0, "the JMenuBar is " + h + " px tall in the window: it is drawn there, not in the screen's menu bar");
+        String dir = System.getProperty("guismoke.shots");
+        if (dir != null && !dir.isEmpty()) {
+            settle();
+            Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+                .getDefaultConfiguration().getBounds();
+            java.io.File shot = new java.io.File(dir, "screenmenubar.png");
+            javax.imageio.ImageIO.write(robot.createScreenCapture(
+                new Rectangle(screen.x, screen.y, Math.min(screen.width, 800), 44)), "png", shot);
+            System.out.println("shot " + shot.getPath() + ": the screen's menu bar should read GuiSmoke, then Smoke");
+        }
     }
 
     static void paint() throws Exception {
@@ -186,20 +233,60 @@ public class GuiSmoke {
             && Math.abs(a.getBlue() - b.getBlue()) <= TOLERANCE;
     }
 
-    static void readBack(String where) throws Exception {
+    static boolean greenOver(Color c) {
+        return c.getGreen() >= DOMINANT_AT_LEAST
+            && c.getGreen() - c.getRed() >= MARGIN_OVER_RED_OR_GREEN
+            && c.getGreen() - c.getBlue() >= MARGIN_OVER_BLUE;
+    }
+
+    static boolean redOver(Color c) {
+        return c.getRed() >= DOMINANT_AT_LEAST
+            && c.getRed() - c.getGreen() >= MARGIN_OVER_RED_OR_GREEN
+            && c.getRed() - c.getBlue() >= MARGIN_OVER_BLUE;
+    }
+
+    static String hint(Color got) {
+        if (got.getRed() < 16 && got.getGreen() < 16 && got.getBlue() < 16) {
+            return "; black is what a locked screen, an asleep display or a run from ssh reads"
+                + " (tests/smoke-gui.sh's header)";
+        }
+        return "";
+    }
+
+    interface Judge { boolean ok(Color c); }
+
+    static Color readUntil(Judge judge, String where, String want) throws Exception {
         Point c = panelCentre();
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
         Color got = robot.getPixelColor(c.x, c.y);
-        while (!near(got, FILL)) {
+        while (!judge.ok(got)) {
             require(System.nanoTime() < until, "Robot.getPixelColor(" + c.x + ", " + c.y + ") " + where
-                + " is " + got + ", not " + FILL + " (within " + TOLERANCE + ")");
+                + " is " + got + ", not " + want + hint(got));
             robot.delay(200);
             got = robot.getPixelColor(c.x, c.y);
         }
+        return got;
+    }
+
+    static void repaintWith(Color fill) throws Exception {
+        current = fill;
+        onEdt(() -> { panel.repaint(); return null; });
+        settle();
+    }
+
+    static void readBack(String where) throws Exception {
+        Color first = seen;
+        readUntil(c -> near(c, first), where, "the first read-back " + first + " (within " + TOLERANCE + ")");
     }
 
     static void pixel() throws Exception {
-        readBack("at the panel's centre");
+        seen = readUntil(GuiSmoke::greenOver, "at the panel's centre, painted sRGB " + FILL,
+            "green over red by " + MARGIN_OVER_RED_OR_GREEN + " and over blue by " + MARGIN_OVER_BLUE);
+        repaintWith(ALT);
+        readUntil(GuiSmoke::redOver, "repainted sRGB " + ALT,
+            "red over green by " + MARGIN_OVER_RED_OR_GREEN + " and over blue by " + MARGIN_OVER_BLUE);
+        repaintWith(FILL);
+        readBack("painted sRGB " + FILL + " again");
     }
 
     static void resize() throws Exception {
@@ -244,12 +331,7 @@ public class GuiSmoke {
     }
 
     static void type() throws Exception {
-        // A process started from a shell (ssh, a script) is not the active application, and macOS
-        // gives a window focus only in the active one; Desktop asks AppKit to activate this one.
-        if (java.awt.Desktop.isDesktopSupported()
-                && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
-            java.awt.Desktop.getDesktop().requestForeground(true);
-        }
+        foreground();
         onEdt(() -> { frame.toFront(); field.requestFocusInWindow(); return null; });
         long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
         while (!onEdt(() -> field.isFocusOwner())) {

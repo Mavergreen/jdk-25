@@ -385,3 +385,27 @@ that every cited one is defined here). Each says what was decided, why, and what
   instead, and nothing on 10.9 bridges the two (reasoned, not tried with VoiceOver). Nothing should
   crash, but VoiceOver on 10.9 likely sees no Swing component. Exit: an informal-protocol bridge in `CommonComponentAccessibility`, if anyone
   needs VoiceOver on 10.9.
+- **R62** `tests/java/GuiSmoke.java` judges its first `Robot.getPixelColor` read-back by which channel
+  dominates, not against the sRGB it painted. Robot reads the display's colour space: on the 10.9 box,
+  sRGB `#219e5b` read back as `#009d5b`, red 33 off. So:
+  - the first read must show green over red by 60 and over blue by 30;
+  - a repaint with red and green swapped must then read red over the others the same way;
+  - green again, and every later read (after the resize, in full screen), must come within 12 per
+    channel of that first read.
+
+  A display profile keeps the dominant channel of a saturated colour, so this works on any profile. A
+  black, unpainted (window grey) or wrongly coloured panel still fails. Converting the sRGB colour
+  through the screen's colour space was not done: Java exposes no display ICC profile on macOS.
+
+  `screenmenubar` sets `apple.laf.useScreenMenuBar=true` and asserts through public API that Aqua gave
+  the frame its `com.apple.laf.ScreenMenuBar`, the AWT `MenuBar` AppKit shows as the screen's menu bar,
+  holding the one menu, and that the `JMenuBar` takes no height in the window. That proves the hand-off
+  to AppKit, not the pixels. `SMOKE_GUI_SHOTS` saves `screenmenubar.png` to check those by eye.
+
+  `tests/smoke-gui.sh` skips with 77 on a locked screen or an asleep display, as `ioreg` reports them
+  (`IOConsoleUsers`' `CGSSessionScreenIsLocked`, `IODisplayWrangler`'s `CurrentPowerState`): Robot reads
+  black there while the console is still this user's. Where a key is absent, the pixel `FAIL` names
+  both causes and ssh, from which 10.9 gives screen capture nothing.
+
+  Cost: a colour that keeps its dominant channel but is otherwise wrong passes the first read. Exit:
+  a supported way to read the display's profile, then compare in that space.

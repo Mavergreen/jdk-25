@@ -3,17 +3,30 @@
 #   usage: JDK_HOME=<dir> sh tests/smoke-gui.sh
 #          Compiles tests/java/GuiSmoke.java with JDK_HOME's javac and runs it with JDK_HOME's java,
 #          without -Djava.awt.headless, so the JDK's own default decides (gui: headful in an Aqua
-#          session). It requires an "ok <step>" line for each of: headful frame menubar paint pixel
-#          resize fullscreen type close. Exit 0 when all pass, 1 naming each failed step on stderr,
-#          77 when JDK_HOME is unset (run-repo-tests runs this bare), JDK_HOME/bin/java is not
-#          executable, this host's CPU does not run the JDK natively, or there is no window server:
-#          /dev/console (SMOKE_CONSOLE) does not belong to this user, as tests/smoke-usr-bin.sh decides.
-#          GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240) bounds the whole run.
+#          session). It requires an "ok <step>" line for each of: headful frame screenmenubar paint
+#          pixel resize fullscreen type close. Exit 0 when all pass, 1 naming each failed step on
+#          stderr, 77 when JDK_HOME is unset (run-repo-tests runs this bare), JDK_HOME/bin/java is not
+#          executable, this host's CPU does not run the JDK natively, or nothing on screen can be seen:
+#            no window server: /dev/console (SMOKE_CONSOLE) is not this user's, as smoke-usr-bin decides;
+#            the screen is locked: this user's console session in ioreg's IOConsoleUsers says
+#              CGSSessionScreenIsLocked=Yes;
+#            the display is asleep: IODisplayWrangler's CurrentPowerState is below 4.
+#          Either ioreg key may be absent; then that check decides nothing, and GuiSmoke's pixel FAIL
+#          names a locked screen, an asleep display or ssh when it reads black. SMOKE_IOREG replaces
+#          /usr/sbin/ioreg (the tests).
+#          Run it from a process in the console's Aqua session, such as Terminal there, or from ssh with
+#          open -a Terminal x.command. From an ssh session, even as the console's user, 10.9 gives
+#          screen capture nothing (screencapture writes no file), so Robot reads black; this script does
+#          not try to get round that.
+#          SMOKE_GUI_SHOTS=DIR keeps GuiSmoke's screenshots there (screenmenubar.png, the screen's menu
+#          bar, to check by eye). GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
+#          bounds the whole run.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
-steps="headful frame menubar paint pixel resize fullscreen type close"
+steps="headful frame screenmenubar paint pixel resize fullscreen type close"
 fail=0
 bad() { echo "FAIL $1: $2" >&2; fail=1; }
+skip() { echo "SKIP smoke-gui: $*; nothing headful was tested"; echo "SKIP smoke-gui: $*; nothing headful was tested" >&2; exit 77; }
 
 if [ -z "${JDK_HOME:-}" ]; then
   echo "SKIP smoke-gui: JDK_HOME is unset (usage: JDK_HOME=<dir> sh $0)"; exit 77
@@ -24,11 +37,19 @@ java="$JDK_HOME/bin/java"
 . "$here/lib/host-cpu.sh"
 jdk_runs_natively "$JDK_HOME" || { echo "SKIP smoke-gui: this host's CPU does not run the JDK at $JDK_HOME natively (PORT.md ruling R18)"; exit 77; }
 # spec: PORT.md ruling R60 -- a window needs this user's Aqua session, which the console's owner has
+me="$(id -un)"
 owner="$(stat -f %Su "${SMOKE_CONSOLE:-/dev/console}" 2> /dev/null || true)"
-if [ "$owner" != "$(id -un)" ]; then
-  msg="SKIP smoke-gui: no window server: the console belongs to ${owner:-nobody}, not $(id -un), so no window can open; nothing headful was tested"
-  echo "$msg"; echo "$msg" >&2
-  exit 77
+[ "$owner" = "$me" ] || skip "no window server: the console belongs to ${owner:-nobody}, not $me, so no window can open"
+# platform: a locked screen or an asleep display still has this user on the console, but Robot reads
+#           black there (the 10.9 box, 2026-11-07); ioreg is the shell's view of both
+ioreg="${SMOKE_IOREG:-/usr/sbin/ioreg}"
+if "$ioreg" -n Root -d1 2> /dev/null | tr '{}' '\n\n' | grep -F "\"kCGSSessionUserNameKey\"=\"$me\"" \
+    | grep -F '"kCGSSessionOnConsoleKey"=Yes' | grep -qF '"CGSSessionScreenIsLocked"=Yes'; then
+  skip "the screen is locked (IOConsoleUsers: CGSSessionScreenIsLocked=Yes for $me): unlock it"
+fi
+dps="$("$ioreg" -r -c IODisplayWrangler -d1 2> /dev/null | sed -n 's/.*"CurrentPowerState"=\([0-9]*\).*/\1/p' | sed -n 1p)"
+if [ -n "$dps" ] && [ "$dps" -lt 4 ]; then
+  skip "the display is asleep (IODisplayWrangler CurrentPowerState=$dps, not 4): wake it"
 fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/smoke-gui.XXXXXX")"
@@ -38,7 +59,7 @@ trap 'exit 1' HUP INT TERM
   || { cat "$T/javac.out" >&2; echo "FAIL compile: javac could not compile tests/java/GuiSmoke.java" >&2; exit 1; }
 
 prc=0
-"$java" -cp "$T/classes" GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
+"$java" -cp "$T/classes" ${SMOKE_GUI_SHOTS:+"-Dguismoke.shots=$SMOKE_GUI_SHOTS"} GuiSmoke > "$T/smoke.out" 2>&1 < /dev/null &
 pid=$!
 (sleep "${SMOKE_GUI_SECONDS:-240}"; kill -9 "$pid" 2> /dev/null) > /dev/null 2>&1 &
 guard=$!
