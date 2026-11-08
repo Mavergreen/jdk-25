@@ -382,9 +382,27 @@ that every cited one is defined here). Each says what was decided, why, and what
 
   Cost: the accessibility classes implement the 10.10 `NSAccessibility` protocol (`accessibilityRole`
   and the rest), and 10.9's AppKit asks the informal protocol (`accessibilityAttributeValue:`)
-  instead, and nothing on 10.9 bridges the two (reasoned, not tried with VoiceOver). Nothing should
-  crash, but VoiceOver on 10.9 likely sees no Swing component. Exit: an informal-protocol bridge in `CommonComponentAccessibility`, if anyone
-  needs VoiceOver on 10.9.
+  instead, and nothing on 10.9 bridges the two. Nothing crashes, but VoiceOver on 10.9 cannot reach
+  a Swing component.
+
+  Measured (Task 18), the maintainer's VoiceOver pass on 10.9.5, 2026-11-08, against the gui image
+  cdad3e6 in GuiSmoke's hold mode (`SMOKE_GUI_HOLD=1`). The verdict is **partial**:
+
+  | Row | Control | Heard |
+  |---|---|---|
+  | 1 | Smoke menu, in the screen's menu bar (AppKit's own `NSMenu`) | "Smoke menu, one item", then "say hello" |
+  | 2 | "Your name:" text field (Swing) | unreachable |
+  | 3 | "Say hello" button (Swing) | unreachable |
+  | 4 | the label the button sets (Swing) | unreachable |
+  | 5 | the window | "GuiSmoke VoiceOver window", and its title-bar buttons |
+
+  Ctrl-Option-Right cycles only the title-bar controls. The VoiceOver cursor never enters the
+  content, and it does not follow keyboard focus: it stayed on the close button while focus was in
+  the text field. Tab still moves keyboard focus visibly. The gap is declared on `gui` as
+  `on-target:accessibility` (ruling R65).
+
+  Exit: an informal-protocol bridge in `CommonComponentAccessibility` that makes VoiceOver read
+  GuiSmoke's hold-mode controls (QUEUE "jdk25: Swing is invisible to VoiceOver on 10.9").
 - **R62** `tests/java/GuiSmoke.java` judges its first `Robot.getPixelColor` read-back by which channel
   dominates, not against the sRGB it painted. Robot reads the display's colour space: on the 10.9 box,
   sRGB `#219e5b` read back as `#009d5b`, red 33 off. So:
@@ -435,3 +453,10 @@ that every cited one is defined here). Each says what was decided, why, and what
   Cost: browse's LaunchServices path runs only in the opt-in run, which browses a small `file:` page
   and asks for an eye check: Task 19's hands-on pass. Exit: none needed; a smoke must not drive the
   maintainer's own browser.
+- **R65** The `on-target:accessibility` deviation (Swing invisible to VoiceOver on 10.9, R61) is
+  declared on `gui`, beside the flag flip, not on `main`. On `main` the JDK is headless by default
+  (`patches/0013`), so no Swing window reaches AppKit, and `on-target:gui` already declares GUI
+  unsupported. The gap reaches users only in the release that turns the GUI on, which is `gui`'s
+  merge. When that merge deletes `on-target:gui` (Task 20), this line stays until its exit.
+
+  Cost: `main`'s `INGREDIENTS.md` doesn't list the gap until then. Exit: as R61's.
