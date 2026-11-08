@@ -13,6 +13,8 @@
 #              beside PKG records, ISRG Root X1 among them;
 #            JDK_HOME=/usr/local/mavergreen/jdk25 sh tests/smoke-runtime.sh --network, where 77 is a
 #              failure: on this box the JDK must run;
+#            JDK_HOME=/usr/local/mavergreen/jdk25 sh tests/smoke-gui.sh, headful under a console login;
+#              its 77 (no window server, as in the mavericks-vm guest) is reported and passes;
 #            java-25 -version and javac-25 -version from /usr/local/mavergreen/bin;
 #            /usr/libexec/java_home -v 25 is the .jdk's Contents/Home, and /usr/bin/java -version
 #              reports the installed version;
@@ -86,7 +88,7 @@ echo "ok manifest: $JDK_VERSION"
   || fail "the postinstall wrote no $prefix/lib/server/classes.jsa; /var/log/install.log says why"
 echo "ok cds: $prefix/lib/server/classes.jsa"
 # spec: PORT.md ruling R18 -- build-jdk-test's runtime half runs here, on the installed JDK, since no
-#       runner executes x86_64; smoke-runtime's required headless check covers the headless default
+#       runner executes x86_64; smoke-runtime's required headless check covers headless mode, asked for
 bi="$(dirname "$pkg")/build-info-jdk25.txt"
 [ -r "$bi" ] || fail "no readable $bi beside the pkg: package-pkg.sh writes it, and it must record ca-certs-roots (artifacts staged before c00a660 lack that key)"
 roots="$(sed -n 's/^ca-certs-roots=//p' "$bi")"
@@ -104,6 +106,14 @@ rc=0
 JDK_HOME="$prefix" sh "$here/smoke-runtime.sh" --network || rc=$?
 [ "$rc" -eq 0 ] || fail "smoke-runtime --network exited $rc (77, cannot execute, is a failure on this box)"
 echo "ok smoke-runtime --network"
+# spec: PORT.md ruling R60 -- a window needs a console login, which the guest has not; smoke-gui says so
+rc=0
+JDK_HOME="$prefix" sh "$here/smoke-gui.sh" || rc=$?
+case "$rc" in
+  0) echo "ok smoke-gui" ;;
+  77) echo "skipped smoke-gui: no window server here, so nothing headful was tested (its SKIP line says why)" ;;
+  *) fail "smoke-gui exited $rc" ;;
+esac
 
 for t in java javac; do
   [ -x "$farm/$t-25" ] || fail "$farm/$t-25 is not installed"

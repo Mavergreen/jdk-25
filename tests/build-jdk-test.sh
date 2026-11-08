@@ -3,7 +3,7 @@
 # usage: JDK_BUILD=1 sh tests/build-jdk-test.sh
 #   Checks the image build/build-jdk.sh left in $(jdk_build_root)/image, or JDK_IMAGE, with its test natives
 #   (JDK_TEST_NATIVES) and build-info.txt (JDK_BUILD_INFO) beside it. Exits 77 (skip) unless JDK_BUILD=1,
-#   and off macOS. Every static check runs on any Mac; the default-headless and keytool -cacerts checks
+#   and off macOS. Every static check runs on any Mac; the java.awt.headless-unset and keytool -cacerts checks
 #   execute the image, so they run only where this host's CPU runs the image's bin/java natively
 #   (tests/lib/host-cpu.sh: Mac OS X 10.9). Anywhere else (an arm64 Mac, Rosetta or not) nothing of the
 #   image is executed: the static checks decide PASS or FAIL, cacerts is read with the boot JDK's keytool,

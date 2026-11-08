@@ -35,6 +35,7 @@ done
 # spec: PORT.md ruling R18 -- every script that runs a JDK's tools, and why that never runs x86_64 translated
 inventory='tests/build-jdk-test.sh gated
 tests/smoke-runtime.sh gated
+tests/smoke-gui.sh gated
 tests/jtreg.sh gated
 tests/smoke-mavericks.sh on-target
 tests/smoke-usr-bin.sh gated

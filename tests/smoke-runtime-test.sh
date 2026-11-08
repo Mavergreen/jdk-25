@@ -86,7 +86,7 @@ has "$T/stdout" '^ok jlink' "all ok"
 has "$T/stdout" '^ok version-javac' "all ok"
 hasnt "$T/stdout" '^ok version-jfoo' "all ok"
 has "$T/stdout" 'skip version-jfoo' "all ok"
-hasnt "$T/log" 'java.awt.headless' "default run must not pass the headless flag"
+has "$T/log" '-Djava.awt.headless=true' "every run asks for headless"
 hasnt "$T/log" '--network' "default run"
 
 : > "$T/log"

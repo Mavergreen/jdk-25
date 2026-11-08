@@ -8,8 +8,9 @@
 #   (tests/lib/host-cpu.sh's jdk_runs_natively, by its release file's OS_ARCH or bin/java read through
 #   symlinks: an x86_64 JDK on an arm64 Mac, Rosetta or not), decided without running it.
 #   --network adds an HttpClient GET of https://github.com (needs the network).
-#   SMOKE_STOCK_JDK=1 passes -Djava.awt.headless=true to the program, for validating this test against
-#   upstream JDK builds only; our builds default to headless and must be run without it.
+#   The program always runs with -Djava.awt.headless=true: on gui, without patches/0013, a console
+#   login would otherwise make it headful, and tests/smoke-gui.sh is the headful check.
+#   SMOKE_STOCK_JDK=1 is accepted and changes nothing, so older callers still work.
 #   --version is required of the tools listed in known_tools (the launchers the JDK 25 man pages
 #   document with --version); any other bin/* is tried and skipped if it rejects --version and -version.
 #   Each --version probe is stopped after SMOKE_TOOL_SECONDS (default 20): a listed tool that runs
@@ -75,7 +76,8 @@ trap 'exit 1' HUP INT TERM
 if "$JDK_HOME/bin/javac" -d "$T/classes" "$here/java/LegacySmoke.java" > "$T/javac.out" 2>&1; then
   good compile
   set -- -cp "$T/classes" "-Djava.io.tmpdir=${TMPDIR:-/tmp}"
-  if [ "${SMOKE_STOCK_JDK:-}" = 1 ]; then set -- "$@" -Djava.awt.headless=true; fi
+  # spec: PORT.md ruling R10 -- headless asked for, not assumed: upstream's default is headful in an Aqua session
+  set -- "$@" -Djava.awt.headless=true
   set -- "$@" LegacySmoke
   if [ "$network" = yes ]; then set -- "$@" --network; fi
   prc=0
