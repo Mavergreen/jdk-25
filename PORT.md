@@ -35,9 +35,11 @@ what, why on 10.9, provenance and exit.
 | `patches/0020-build-no-exploded-image-optimize.patch` | a native build no longer optimizes the exploded image, which a cross build never did, so its jmods' `module-info.class` are the cross build's bytes (ruling R59) | upstream's jmod writes the same bytes whether or not `ModulePackages` is already present |
 | `patches/0021-java2d-metal-request-prints-opengl.patch` | `-Dsun.java2d.metal=true` prints one line on stderr saying it is ignored, then Java2D uses OpenGL as `0015` makes it; `tests/no-metal-test.sh` asserts no Mach-O links or needs Metal | never |
 
-Parked for release 2, not applied (`patches-gui/`, same headers): `0002-appkit-nsstring-substring`,
-`0003-appkit-window-tabbing-fullsize`, `0005-appkit-tray-icon-nsbutton`, `0006-a11y-legacy-superclass`,
-`0007-a11y-subrole-guards`. They apply in that order on top of `patches/`.
+| `patches/0022-appkit-nsstring-substring.patch` | keyboard input's Keyman check uses `rangeOfString:`, not `containsString:` (10.10+) (was `patches-gui/0002`) | Recaulk back-fills `-[NSString containsString:]` |
+| `patches/0023-appkit-window-tabbing-fullsize.patch` | full-size content view (10.10+) and automatic window tabbing (10.12+) only where `NSWindow` has them (was `patches-gui/0003`) | never |
+| `patches/0024-appkit-tray-icon-nsbutton.patch` | the tray icon view is a borderless, image-only `NSButton`, not an `NSStatusBarButton` (was `patches-gui/0005`) | never |
+| `patches/0025-a11y-legacy-superclass.patch` | `CommonComponentAccessibility` subclasses `NSObject <NSAccessibility>`, not `NSAccessibilityElement` (10.10+) (was `patches-gui/0006`; ruling R61) | never |
+| `patches/0026-a11y-subrole-guards.patch` | menu-bar items and tab buttons report pre-10.12/10.13 roles (was `patches-gui/0007`) | never |
 
 Not a patch: every target link takes clang22's own `libc++.a`, hidden, plus the system `libc++abi`
 (`-nostdlib++ -Wl,-load_hidden,<clang22>/lib/libc++.a -lc++abi` in `build/build-jdk.sh`'s
@@ -72,7 +74,8 @@ is classified below into one of three classes:
   provides the function, so the JDK carries no patch for it; the JDK links Recaulk instead.
 - **JDK-headless**: a JDK-specific change the headless release needs. Carried in `patches/`, applied
   by shipyard's `apply_patches.sh`.
-- **JDK-GUI**: AppKit, Java2D or accessibility. Parked in `patches-gui/` (not applied) for release 2.
+- **JDK-GUI**: AppKit, Java2D or accessibility. Carried in `patches/` too since release 2's GUI work
+  landed on `main` (ruling R61); `patches-gui/` is gone.
 
 Hiker159's build also passes `--with-jvm-features=-zgc` (ZGC excluded; `docs/MAVERICKS.md`). We do
 not: ZGC builds against the 10.9 SDK unpatched, and jtreg `gc/z` and `tier1_gc_2` pass natively on
@@ -117,21 +120,21 @@ Hunks are numbered in the order they appear for each file in `mavericks.patch`.
 | `src/java.desktop/macosx/classes/sun/java2d/MacOSFlags.java` | 1/1 | Java2D: Metal never enabled, OpenGL required | JDK-headless | `patches/0015-java2d-opengl-only.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTSurfaceLayers.m` | 1/2 | drop `CAMetalLayer.h` import | JDK-headless | `patches/0015-java2d-opengl-only.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTSurfaceLayers.m` | 2/2 | repaint only `CAOpenGLLayer`s | JDK-headless | `patches/0015-java2d-opengl-only.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m` | 1/2 | `keyDown:`: `containsString:` (10.10+) → `rangeOfString:` | JDK-GUI | `patches-gui/0002-appkit-nsstring-substring.patch` | a Recaulk back-fill of `-[NSString containsString:]` |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m` | 2/2 | input-method check: same substitution | JDK-GUI | `patches-gui/0002-appkit-nsstring-substring.patch` | as above |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m` | 1/2 | full-size content view only where AppKit has it | JDK-GUI | `patches-gui/0003-appkit-window-tabbing-fullsize.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m` | 2/2 | skip `setAllowsAutomaticWindowTabbing:` (10.12+) where absent | JDK-GUI | `patches-gui/0003-appkit-window-tabbing-fullsize.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m` | 1/2 | `keyDown:`: `containsString:` (10.10+) → `rangeOfString:` | JDK-GUI | `patches/0022-appkit-nsstring-substring.patch` | a Recaulk back-fill of `-[NSString containsString:]` |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTView.m` | 2/2 | input-method check: same substitution | JDK-GUI | `patches/0022-appkit-nsstring-substring.patch` | as above |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m` | 1/2 | full-size content view only where AppKit has it | JDK-GUI | `patches/0023-appkit-window-tabbing-fullsize.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/AWTWindow.m` | 2/2 | skip `setAllowsAutomaticWindowTabbing:` (10.12+) where absent | JDK-GUI | `patches/0023-appkit-window-tabbing-fullsize.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/CDesktopPeer.m` | 1/3 | `legacyOpenURLs`: `NSWorkspaceOpenConfiguration` (10.15+) when available, else `LSOpenURLsWithRole` | JDK-headless | `patches/0006-desktop-launchservices.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/CDesktopPeer.m` | 2/3 | `_lsOpenURI` calls `legacyOpenURLs` | JDK-headless | `patches/0006-desktop-launchservices.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/CDesktopPeer.m` | 3/3 | `_lsOpenFile` calls `legacyOpenURLs` (print flag), `containsString:` → `rangeOfString:` with nil guards | JDK-headless | `patches/0006-desktop-launchservices.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/CSystemColors.m` | 1/2 | `CONTROL_HIGHLIGHT`: `selectedContentBackgroundColor` only on 10.14+ | JDK-headless | `patches/0016-appkit-system-colors.patch` | never |
 | `src/java.desktop/macosx/native/libawt_lwawt/awt/CSystemColors.m` | 2/2 | `CELL_HIGHLIGHT_COLOR`: `controlAccentColor` only on 10.14+ | JDK-headless | `patches/0016-appkit-system-colors.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.h` | 1/1 | `AWTTrayIconView` subclasses `NSButton`, not `NSStatusBarButton` (10.10+) | JDK-GUI | `patches-gui/0005-appkit-tray-icon-nsbutton.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.m` | 1/1 | borderless, image-only button | JDK-GUI | `patches-gui/0005-appkit-tray-icon-nsbutton.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.h` | 1/1 | superclass `NSObject <NSAccessibility>`, not `NSAccessibilityElement` (10.10+) | JDK-GUI | `patches-gui/0006-a11y-legacy-superclass.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.m` | 1/1 | `isAccessibilitySelectorAllowed:` no longer calls super | JDK-GUI | `patches-gui/0006-a11y-legacy-superclass.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/MenuAccessibility.m` | 1/1 | `NSAccessibilityMenuBarItemRole` only on 10.12+ | JDK-GUI | `patches-gui/0007-a11y-subrole-guards.patch` | never |
-| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/TabButtonAccessibility.m` | 1/1 | `NSAccessibilityTabButtonSubrole` only on 10.13+ | JDK-GUI | `patches-gui/0007-a11y-subrole-guards.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.h` | 1/1 | `AWTTrayIconView` subclasses `NSButton`, not `NSStatusBarButton` (10.10+) | JDK-GUI | `patches/0024-appkit-tray-icon-nsbutton.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/CTrayIcon.m` | 1/1 | borderless, image-only button | JDK-GUI | `patches/0024-appkit-tray-icon-nsbutton.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.h` | 1/1 | superclass `NSObject <NSAccessibility>`, not `NSAccessibilityElement` (10.10+) | JDK-GUI | `patches/0025-a11y-legacy-superclass.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/CommonComponentAccessibility.m` | 1/1 | `isAccessibilitySelectorAllowed:` no longer calls super | JDK-GUI | `patches/0025-a11y-legacy-superclass.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/MenuAccessibility.m` | 1/1 | `NSAccessibilityMenuBarItemRole` only on 10.12+ | JDK-GUI | `patches/0026-a11y-subrole-guards.patch` | never |
+| `src/java.desktop/macosx/native/libawt_lwawt/awt/a11y/TabButtonAccessibility.m` | 1/1 | `NSAccessibilityTabButtonSubrole` only on 10.13+ | JDK-GUI | `patches/0026-a11y-subrole-guards.patch` | never |
 
 Totals: 16 Recaulk, 22 JDK-headless, 10 JDK-GUI.
 
@@ -170,15 +173,15 @@ Totals: 16 Recaulk, 22 JDK-headless, 10 JDK-GUI.
 - **`Desktop` via LaunchServices is headless.** It lives in `libawt_lwawt`, but `Desktop.browse` and
   `Desktop.open` are what a command-line program uses to open a browser or a file, with no window of
   its own. Its `containsString:` substitutions stay with it, since they are in the same function.
-- **Two of Hiker159's GUI patches ship in release 1; five stay parked.** With the four AppKit
+- **Two of Hiker159's GUI patches shipped in release 1; the other five followed (ruling R61).** With the four AppKit
   natives built against the 11.3 SDK (ruling R16), nothing in `patches-gui/` is needed to compile or
   link. `patches/0016` (was `patches-gui/0004`) moved because the compat guard refuses
   `libawt_lwawt` without it: `controlAccentColor` is on the guard's post-10.9 selector list.
   `patches/0015` (was `patches-gui/0001`) moved so that `-Djava.awt.headless=false` asks Java2D for
-  OpenGL and fails clearly rather than reaching for Metal. The five still parked guard
-  run-time-only AppKit and accessibility calls that a headless JDK never makes. The guard does not
-  know their selectors, and their 10.10+ classes link weakly, so they would surface only on the 10.9
-  box with a window.
+  OpenGL and fails clearly rather than reaching for Metal. The other five, parked until release 2,
+  guard run-time-only AppKit and accessibility calls that a headless JDK never makes. The guard does
+  not know their selectors, and their 10.10+ classes link weakly, so they would surface only on the
+  10.9 box with a window; they are `patches/0022`-`0026` now.
 
 ## Rulings
 
@@ -364,3 +367,20 @@ that every cited one is defined here). Each says what was decided, why, and what
   default build sets no password, so it has no auto-login (its `docs/configuration-register.md`,
   "auto-login"), and there the check always skips. Only the box proves Jar Launcher. Exit: the guest is
   built with a password and auto-login, and then the skip never prints there.
+- **R61** Release 2's AppKit/Foundation sweep (Task 16) found nothing past Hiker159's five parked GUI
+  patches, which moved from `patches-gui/` to `patches/0022`-`0026` on `main`, applied headless or not.
+  The sweep, on a `gui` build with them applied:
+  - every compile of the AppKit natives (libawt_lwawt, libosxapp, libosxui, libsplashscreen, libawt,
+    libjawt, libfontmanager) rerun with `-Wunguarded-availability` (off by default; clang warns only
+    about 10.13+ APIs without it): 80 warnings, each a send to one of our own classes that defines the
+    method, an enum constant, or already behind `respondsToSelector:` or `@available`;
+  - every Objective-C class those libraries import, against the 10.9 SDK's AppKit, Foundation and
+    QuartzCore: only `NSAccessibilityElement` (`0025` removes it) and `NSWorkspaceOpenConfiguration`
+    (behind `@available(macOS 10.15, *)`, `patches/0006`);
+  - the compat guard, selectors included, which passed before and after.
+
+  Cost: the accessibility classes implement the 10.10 `NSAccessibility` protocol (`accessibilityRole`
+  and the rest), and 10.9's AppKit asks the informal protocol (`accessibilityAttributeValue:`)
+  instead, and nothing on 10.9 bridges the two (reasoned, not tried with VoiceOver). Nothing should
+  crash, but VoiceOver on 10.9 likely sees no Swing component. Exit: an informal-protocol bridge in `CommonComponentAccessibility`, if anyone
+  needs VoiceOver on 10.9.
