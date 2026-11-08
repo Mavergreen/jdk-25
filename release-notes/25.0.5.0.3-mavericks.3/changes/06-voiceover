@@ -1,0 +1,1 @@
+VoiceOver on 10.9 reads Java menus and window titles but cannot yet reach the controls inside a Swing window.

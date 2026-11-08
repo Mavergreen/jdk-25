@@ -439,8 +439,12 @@ that every cited one is defined here). Each says what was decided, why, and what
     step also refuses to print unless the job's service is that stream.
 
   Cost: the step proves `PrinterJob` and Java2D's print graphics, not AppKit's print path. On 10.9 a
-  user makes a PDF through the native print dialog's PDF button, and Task 19's real-hardware pass
-  exercises that by hand. No untested `CPrinterJob` patch (the controller's ruling, 2026-11-07): a
+  user makes a PDF through the native print dialog's PDF button. Task 19's real-hardware pass checked
+  that by hand on 2026-11-08: a probe calling `PrinterJob.printDialog()` showed the native macOS
+  dialog, and PDF > Save as PDF wrote the page. The same pass found that Java's cross-platform dialog
+  (`JTable.print` uses it) offers Print To File, which by this ruling's reading reaches the real
+  printer. The maintainer cancelled it rather than try. The release notes warn of it, and the
+  controller's QUEUE tracks it. No untested `CPrinterJob` patch (the controller's ruling, 2026-11-07): a
   wrong one prints on a real printer. Exit: a patch that makes `CPrinterJob` honour a `Destination`
   attribute, tested where no printer queue exists, if the maintainer wants that path automated.
 - **R64** GuiSmoke never calls `Desktop.browse` unless asked (`SMOKE_GUI_BROWSE=1`), the controller's

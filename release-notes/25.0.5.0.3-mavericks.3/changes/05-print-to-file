@@ -1,0 +1,1 @@
+Java's own cross-platform print dialog, which JTable's Print uses, can send a Print to File job to your printer instead.

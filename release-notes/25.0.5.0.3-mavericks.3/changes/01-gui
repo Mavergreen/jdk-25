@@ -1,0 +1,1 @@
+AWT, Swing and Java2D now work on Mac OS X 10.9, with native-looking windows, menus in the menu bar at the top of the screen, and drawing through OpenGL.
