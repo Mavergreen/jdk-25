@@ -25,7 +25,6 @@ what, why on 10.9, provenance and exit.
 | `patches/0010-hotspot-thread-name-size-header.patch` | `MAXTHREADNAMESIZE` from `<sys/proc_info.h>` | never |
 | `patches/0011-nio-clone-noownercopy.patch` | `CLONE_NOOWNERCOPY` where `<sys/clonefile.h>` lacks it | Recaulk defines it |
 | `patches/0012-java-props-os-version-declaration.patch` | declares `-[NSProcessInfo operatingSystemVersion]` for `0004` against the 10.9 SDK | with `0004`: a Recaulk back-fill |
-| `patches/0013-default-headless-on-10.9.patch` | `java.awt.headless` defaults to true on macOS (ruling R10) | the GUI release's gating commit |
 | `patches/0014-build-appkit-natives-sdk.patch` | the four AppKit natives build against `MAVERGREEN_APPKIT_SDK` (the 11.3 pin) at 10.9 (ruling R16) | the family SDK declaration facility widened to AppKit |
 | `patches/0015-java2d-opengl-only.patch` | Java2D uses OpenGL, never Metal (was `patches-gui/0001`) | never |
 | `patches/0016-appkit-system-colors.patch` | system colors without 10.14 selectors (was `patches-gui/0004`) | never |
@@ -190,8 +189,10 @@ that every cited one is defined here). Each says what was decided, why, and what
 
 - **R10** Upstream configure refuses `--enable-headless-only` on macOS (`make/autoconf/jdk-options.m4`),
   so release 1 builds and links `java.desktop` in full. Patches needed to compile and link it against
-  the 10.9 SDK live in `patches/`; `patches/0013` makes `java.awt.headless` default to true (still
-  overridable). The release-2 gating commit deletes that patch rather than dropping a configure flag.
+  the 10.9 SDK live in `patches/`; `patches/0013` made `java.awt.headless` default to true (still
+  overridable). The `gui` branch deletes that patch rather than dropping a configure flag, and its
+  merge is release 2's gating commit; without it, upstream's default holds: headless exactly when the
+  process is outside an Aqua session (`PlatformGraphicsInfo.getDefaultHeadlessProperty`).
 - **R11** `SecureDirectoryStream` stays off on 10.9: the only cross-directory `renameat` available goes
   through `F_GETPATH` and `rename()`, a race that breaks its guarantee. Callers fall back to the
   non-secure stream, which upstream already handles. Exit: Recaulk gains an fd-relative `renameat`.
