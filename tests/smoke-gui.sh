@@ -4,7 +4,10 @@
 #          Compiles tests/java/GuiSmoke.java with JDK_HOME's javac and runs it with JDK_HOME's java,
 #          without -Djava.awt.headless, so the JDK's own default decides (gui: headful in an Aqua
 #          session). It requires an "ok <step>" line for each of: headful frame screenmenubar paint
-#          pixel resize fullscreen type close. Exit 0 when all pass, 1 naming each failed step on
+#          pixel resize fullscreen type fonts clipboard dnd badge desktop print close. The run sets the
+#          clipboard and puts its text back, badges the Dock icon and clears it, opens two empty
+#          temporary folders in Finder and closes their windows (osascript), and prints one page to a
+#          temporary PostScript file only. Exit 0 when all pass, 1 naming each failed step on
 #          stderr, 77 when JDK_HOME is unset (run-repo-tests runs this bare), JDK_HOME/bin/java is not
 #          executable, this host's CPU does not run the JDK natively, or nothing on screen can be seen:
 #            no window server: /dev/console (SMOKE_CONSOLE) is not this user's, as smoke-usr-bin decides;
@@ -18,12 +21,12 @@
 #          open -a Terminal x.command. From an ssh session, even as the console's user, 10.9 gives
 #          screen capture nothing (screencapture writes no file), so Robot reads black; this script does
 #          not try to get round that.
-#          SMOKE_GUI_SHOTS=DIR keeps GuiSmoke's screenshots there (screenmenubar.png, the screen's menu
-#          bar, to check by eye). GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
+#          SMOKE_GUI_SHOTS=DIR keeps GuiSmoke's screenshots there, each named with what to see:
+#          screenmenubar.png (the screen's menu bar), hello.png (Lucida Grande), dock.png (the badge). GuiSmoke stops itself after 180 s; SMOKE_GUI_SECONDS (default 240)
 #          bounds the whole run.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
-steps="headful frame screenmenubar paint pixel resize fullscreen type close"
+steps="headful frame screenmenubar paint pixel resize fullscreen type fonts clipboard dnd badge desktop print close"
 fail=0
 bad() { echo "FAIL $1: $2" >&2; fail=1; }
 skip() { echo "SKIP smoke-gui: $*; nothing headful was tested"; echo "SKIP smoke-gui: $*; nothing headful was tested" >&2; exit 77; }

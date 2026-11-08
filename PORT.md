@@ -409,3 +409,17 @@ that every cited one is defined here). Each says what was decided, why, and what
 
   Cost: a colour that keeps its dominant channel but is otherwise wrong passes the first read. Exit:
   a supported way to read the display's profile, then compare in that space.
+- **R63** GuiSmoke's `print` step prints through `PrinterJob` to a PostScript file, by a
+  `StreamPrintService`, and not to PDF.
+  - **Why not PDF:** macOS's `CPrinterJob` sends a job to a file (`NSPrintSaveJob`, PDF) only when its
+    own print dialog chose one: `setDestinationFile` sets `destinationAttr`, the only destination its
+    native print loop reads. A `Destination` attribute given to `print(attributes)` reaches
+    `RasterPrinterJob`'s `mDestination` and goes no further. So a dialog-free "print to PDF file"
+    through public API prints on the default printer instead.
+  - **Why PostScript is safe:** `CPrinterJob.print` returns through `spoolToService` for a
+    `StreamPrintService` before it touches the native path, so no queue or dialog is reachable. The
+    step also refuses to print unless the job's service is that stream.
+
+  Cost: the step proves `PrinterJob` and Java2D's print graphics, not AppKit's print path. Exit: a
+  patch that makes `CPrinterJob` honour a `Destination` attribute (then PDF, with no dialog), if the
+  maintainer wants that path exercised.

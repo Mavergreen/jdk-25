@@ -16,6 +16,16 @@
  *   resize     the frame grows, the panel follows, and the pixel at its new centre reads that value;
  *   fullscreen the frame becomes the screen's full-screen window, fills the screen, and comes back;
  *   type       Robot types "mvk" into the focused text field;
+ *   fonts      CoreText's font families include Lucida Grande, which resolves as itself (not Dialog),
+ *              and "Hello" in it draws ink off screen and in the frame's label; with shots, hello.png;
+ *   clipboard  a string set on the system clipboard reads back in Java and through /usr/bin/pbpaste
+ *              (the AppKit pasteboard), and the clipboard's earlier string is put back;
+ *   dnd        Robot drags the selected "dragme" from one text field and drops it on another;
+ *   badge      Taskbar sets the dock icon's badge to "17" (with shots, dock.png shows it), then clears it;
+ *   desktop    Desktop.open of a new empty folder and Desktop.browse of another's file: URL each open a
+ *              Finder window (LaunchServices, patches/0006), which /usr/bin/osascript sees and closes;
+ *   print      PrinterJob prints a page to a PostScript file through a StreamPrintService, which never
+ *              reaches a printer queue or a dialog; the file starts %!PS-Adobe;
  *   close      a WINDOW_CLOSING event disposes the frame, and windowClosed arrives.
  * Robot reads the screen in the display's colour space, not the sRGB the panel paints in: on the 10.9
  * box sRGB #219e5b read back as #009d5b. So the first read-back is judged by which channel dominates,
@@ -64,6 +74,9 @@ public class GuiSmoke {
     static JFrame frame;
     static JPanel panel;
     static JTextField field;
+    static JTextField dragSource;
+    static JTextField dragTarget;
+    static javax.swing.JLabel hello;
     static JMenuBar bar;
     static final CountDownLatch painted = new CountDownLatch(1);
     static final CountDownLatch closed = new CountDownLatch(1);
@@ -95,6 +108,12 @@ public class GuiSmoke {
         step("resize", GuiSmoke::resize);
         step("fullscreen", GuiSmoke::fullscreen);
         step("type", GuiSmoke::type);
+        step("fonts", GuiSmoke::fonts);
+        step("clipboard", GuiSmoke::clipboard);
+        step("dnd", GuiSmoke::dnd);
+        step("badge", GuiSmoke::badge);
+        step("desktop", GuiSmoke::desktop);
+        step("print", GuiSmoke::print);
         step("close", GuiSmoke::close);
         System.out.println("PASS GuiSmoke");
         System.out.flush();
@@ -157,7 +176,12 @@ public class GuiSmoke {
             menu.add(new JMenuItem("Nothing"));
             bar.add(menu);
             frame.setJMenuBar(bar);
-            field = new JTextField(20);
+            field = new JTextField(12);
+            dragSource = new JTextField("dragme", 8);
+            dragSource.setDragEnabled(true);
+            dragTarget = new JTextField(8);
+            hello = new javax.swing.JLabel("Hello");
+            hello.setFont(new java.awt.Font("Lucida Grande", java.awt.Font.PLAIN, 36));
             panel = new JPanel() {
                 @Override protected void paintComponent(Graphics g) {
                     super.paintComponent(g);
@@ -168,7 +192,12 @@ public class GuiSmoke {
             };
             panel.setPreferredSize(new Dimension(320, 200));
             panel.setBorder(BorderFactory.createEmptyBorder());
-            frame.getContentPane().add(field, java.awt.BorderLayout.NORTH);
+            JPanel north = new JPanel();
+            north.add(field);
+            north.add(dragSource);
+            north.add(dragTarget);
+            frame.getContentPane().add(north, java.awt.BorderLayout.NORTH);
+            frame.getContentPane().add(hello, java.awt.BorderLayout.SOUTH);
             frame.getContentPane().add(panel, java.awt.BorderLayout.CENTER);
             frame.pack();
             frame.setLocation(80, 80);
@@ -355,6 +384,205 @@ public class GuiSmoke {
             require(System.nanoTime() < until, "the text field holds \"" + text + "\", not \"mvk\"");
             Thread.sleep(100);
             text = onEdt(() -> field.getText());
+        }
+    }
+
+    static void shot(String name, Rectangle r, String see) throws Exception {
+        String dir = System.getProperty("guismoke.shots");
+        if (dir == null || dir.isEmpty()) return;
+        java.io.File f = new java.io.File(dir, name);
+        javax.imageio.ImageIO.write(robot.createScreenCapture(r), "png", f);
+        System.out.println("shot " + f.getPath() + ": " + see);
+    }
+
+    static int count(java.awt.image.BufferedImage img, boolean dark) {
+        int n = 0;
+        for (int y = 0; y < img.getHeight(); y++) {
+            for (int x = 0; x < img.getWidth(); x++) {
+                int rgb = img.getRGB(x, y);
+                int r = (rgb >> 16) & 0xff, g = (rgb >> 8) & 0xff, b = rgb & 0xff;
+                if (dark ? (r < 96 && g < 96 && b < 96) : (r > 160 && g > 160 && b > 160)) n++;
+            }
+        }
+        return n;
+    }
+
+    // Dark glyphs on a light ground: a black capture (locked screen, asleep display, ssh) has no light.
+    static String ink(java.awt.image.BufferedImage img) {
+        int dark = count(img, true), light = count(img, false);
+        return dark > 100 && light > 100 ? null : dark + " dark and " + light + " light pixels, not over 100 of each";
+    }
+
+    static void fonts() throws Exception {
+        String[] families = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+        require(families.length > 0, "CoreText listed no font families");
+        require(java.util.Arrays.asList(families).contains("Lucida Grande"),
+            "the " + families.length + " font families do not include Lucida Grande, the 10.9 system font");
+        java.awt.Font f = new java.awt.Font("Lucida Grande", java.awt.Font.PLAIN, 36);
+        require(f.getFamily().equals("Lucida Grande"), "Font(\"Lucida Grande\") resolved to " + f.getFamily());
+        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(200, 60, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = img.createGraphics();
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, 200, 60);
+        g.setColor(Color.BLACK);
+        g.setFont(f);
+        g.drawString("Hello", 8, 44);
+        g.dispose();
+        String off = ink(img);
+        require(off == null, "\"Hello\" in Lucida Grande drew " + off + " off screen");
+        Rectangle r = onEdt(() -> new Rectangle(hello.getLocationOnScreen(), hello.getSize()));
+        String on = ink(robot.createScreenCapture(r));
+        require(on == null, "the frame's \"Hello\" label at " + r + " shows " + on + hint(Color.BLACK));
+        shot("hello.png", r, "\"Hello\" in Lucida Grande (the 10.9 system font: round, open letters, not Helvetica)");
+    }
+
+    static void clipboard() throws Exception {
+        java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        java.awt.datatransfer.DataFlavor sf = java.awt.datatransfer.DataFlavor.stringFlavor;
+        String before = cb.isDataFlavorAvailable(sf) ? (String) cb.getData(sf) : null;
+        String mine = "GuiSmoke clipboard " + System.nanoTime();
+        try {
+            cb.setContents(new java.awt.datatransfer.StringSelection(mine), null);
+            long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
+            String back = cb.isDataFlavorAvailable(sf) ? (String) cb.getData(sf) : null;
+            while (!mine.equals(back)) {
+                require(System.nanoTime() < until, "the clipboard reads back " + back + ", not \"" + mine + "\"");
+                Thread.sleep(100);
+                back = cb.isDataFlavorAvailable(sf) ? (String) cb.getData(sf) : null;
+            }
+            String pasted = pbpaste();
+            require(pasted.equals(mine), "/usr/bin/pbpaste reads \"" + pasted + "\", not \"" + mine + "\": Java's clipboard did not reach the AppKit pasteboard");
+        } finally {
+            restoreClipboard(before);
+        }
+    }
+
+    static String pbpaste() throws Exception {
+        Process p = new ProcessBuilder("/usr/bin/pbpaste").redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        require(p.waitFor() == 0, "/usr/bin/pbpaste exited " + p.exitValue());
+        return out;
+    }
+
+    // Java hands the pasteboard its contents on AppKit's thread, which a prompt exit can outrun, so
+    // the earlier text goes back through pbcopy, which returns only once it is there.
+    static void restoreClipboard(String before) throws Exception {
+        if (before == null) {
+            System.out.println("note clipboard: it held no text before, so it keeps GuiSmoke's string");
+            return;
+        }
+        Process p = new ProcessBuilder("/usr/bin/pbcopy").start();
+        try (java.io.OutputStream os = p.getOutputStream()) {
+            os.write(before.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        require(p.waitFor() == 0, "/usr/bin/pbcopy exited " + p.exitValue() + " putting the clipboard back");
+        require(pbpaste().equals(before), "the clipboard was not put back: /usr/bin/pbpaste reads something else");
+    }
+
+    static Point centreOf(java.awt.Component c) throws Exception {
+        return onEdt(() -> {
+            Point p = c.getLocationOnScreen();
+            return new Point(p.x + c.getWidth() / 2, p.y + c.getHeight() / 2);
+        });
+    }
+
+    static void dnd() throws Exception {
+        onEdt(() -> { dragSource.requestFocusInWindow(); dragSource.selectAll(); return null; });
+        settle();
+        Point from = centreOf(dragSource);
+        Point to = centreOf(dragTarget);
+        robot.mouseMove(from.x, from.y);
+        robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        // Swing starts a drag only after the mouse moves past its threshold while pressed
+        for (int i = 1; i <= 20; i++) {
+            robot.mouseMove(from.x + (to.x - from.x) * i / 20, from.y + (to.y - from.y) * i / 20);
+            robot.delay(30);
+        }
+        robot.delay(300);
+        robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK);
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
+        String text = onEdt(() -> dragTarget.getText());
+        while (!text.contains("dragme")) {
+            require(System.nanoTime() < until, "after the drag the target field holds \"" + text + "\", not \"dragme\"");
+            Thread.sleep(100);
+            text = onEdt(() -> dragTarget.getText());
+        }
+    }
+
+    static void badge() throws Exception {
+        require(java.awt.Taskbar.isTaskbarSupported(), "Taskbar is not supported");
+        java.awt.Taskbar tb = java.awt.Taskbar.getTaskbar();
+        require(tb.isSupported(java.awt.Taskbar.Feature.ICON_BADGE_TEXT), "Taskbar does not support ICON_BADGE_TEXT");
+        tb.setIconBadge("17");
+        robot.delay(1000);
+        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice()
+            .getDefaultConfiguration().getBounds();
+        shot("dock.png", screen, "the Dock's GuiSmoke (java) icon wears a red badge reading 17 (a hidden Dock shows nothing)");
+        tb.setIconBadge(null);
+    }
+
+    static String osascript(String script) throws Exception {
+        Process p = new ProcessBuilder("/usr/bin/osascript", "-e", script).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+        require(p.waitFor() == 0, "/usr/bin/osascript exited " + p.exitValue() + ": " + out);
+        return out;
+    }
+
+    static void finderOpened(String name, String how) throws Exception {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(STEP_SECONDS);
+        while (!osascript("tell application \"Finder\" to get name of every Finder window").contains(name)) {
+            require(System.nanoTime() < until, how + " opened no Finder window named " + name + " in " + STEP_SECONDS + " s");
+            Thread.sleep(250);
+        }
+        osascript("tell application \"Finder\" to close (every Finder window whose name is \"" + name + "\")");
+    }
+
+    static void desktop() throws Exception {
+        require(java.awt.Desktop.isDesktopSupported(), "Desktop is not supported");
+        java.awt.Desktop d = java.awt.Desktop.getDesktop();
+        require(d.isSupported(java.awt.Desktop.Action.OPEN) && d.isSupported(java.awt.Desktop.Action.BROWSE),
+            "Desktop does not support OPEN and BROWSE");
+        java.nio.file.Path opened = java.nio.file.Files.createTempDirectory("guismoke-open-");
+        java.nio.file.Path browsed = java.nio.file.Files.createTempDirectory("guismoke-browse-");
+        try {
+            d.open(opened.toFile());
+            finderOpened(opened.getFileName().toString(), "Desktop.open(" + opened + ")");
+            d.browse(browsed.toUri());
+            finderOpened(browsed.getFileName().toString(), "Desktop.browse(" + browsed.toUri() + ")");
+        } finally {
+            java.nio.file.Files.deleteIfExists(opened);
+            java.nio.file.Files.deleteIfExists(browsed);
+        }
+    }
+
+    static void print() throws Exception {
+        javax.print.StreamPrintServiceFactory[] fs = javax.print.StreamPrintServiceFactory.lookupStreamPrintServiceFactories(
+            javax.print.DocFlavor.SERVICE_FORMATTED.PRINTABLE, "application/postscript");
+        require(fs.length > 0, "no PostScript StreamPrintServiceFactory");
+        java.io.File out = java.io.File.createTempFile("guismoke-print-", ".ps");
+        try {
+            try (java.io.FileOutputStream os = new java.io.FileOutputStream(out)) {
+                javax.print.StreamPrintService svc = fs[0].getPrintService(os);
+                java.awt.print.PrinterJob job = java.awt.print.PrinterJob.getPrinterJob();
+                // A StreamPrintService makes CPrinterJob spool to the stream before it touches the
+                // native print path, so neither a printer queue nor a dialog is reachable.
+                job.setPrintService(svc);
+                require(job.getPrintService() == svc,
+                    "the PrinterJob's service is " + job.getPrintService() + ", not the stream: refusing to print");
+                job.setPrintable((g, pf, page) -> {
+                    if (page > 0) return java.awt.print.Printable.NO_SUCH_PAGE;
+                    g.setFont(new java.awt.Font("Lucida Grande", java.awt.Font.PLAIN, 24));
+                    g.drawString("GuiSmoke", (int) pf.getImageableX() + 36, (int) pf.getImageableY() + 72);
+                    return java.awt.print.Printable.PAGE_EXISTS;
+                });
+                job.print();
+            }
+            byte[] head = java.util.Arrays.copyOf(java.nio.file.Files.readAllBytes(out.toPath()), 10);
+            String h = new String(head, java.nio.charset.StandardCharsets.ISO_8859_1);
+            require(h.startsWith("%!PS-Adobe"), "the printed file starts \"" + h + "\", not %!PS-Adobe");
+            require(out.length() > 1000, "the printed file is " + out.length() + " bytes, not over 1000");
+        } finally {
+            out.delete();
         }
     }
 

@@ -21,6 +21,12 @@ ok pixel
 ok resize
 ok fullscreen
 ok type
+ok fonts
+ok clipboard
+ok dnd
+ok badge
+ok desktop
+ok print
 ok close
 PASS GuiSmoke'
 mkdir -p "$T/jdk/bin"
