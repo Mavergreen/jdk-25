@@ -36,6 +36,7 @@ done
 inventory='tests/build-jdk-test.sh gated
 tests/smoke-runtime.sh gated
 tests/smoke-gui.sh gated
+tests/legacysmoke-closerace-test.sh gated
 tests/jtreg.sh gated
 tests/smoke-mavericks.sh on-target
 tests/smoke-usr-bin.sh gated

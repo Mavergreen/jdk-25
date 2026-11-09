@@ -464,3 +464,44 @@ that every cited one is defined here). Each says what was decided, why, and what
   20's gating commit deleted `on-target:gui`; this line stays until its exit.
 
   Cost: before the GUI release, `main`'s `INGREDIENTS.md` didn't list the gap. Exit: as R61's.
+- **R66** The 10.9 close race is fixed in Recaulk (20261109.1, from its main at 3c30f56, and later),
+  not in a jdk-25 patch: the maintainer's ruling that portability fixes live in Recaulk. libnio's
+  `close` and `dup2`, and libnet's `close`, bind to Recaulk's. `jdk_link_flags` passes the pinned
+  `librecaulk.a` first, and clang22's bundled, older Recaulk defines neither symbol. A test link
+  with those flags defines `_close`, `_close$NOCANCEL` and `_dup2` from `___recaulk_close` and
+  `___recaulk_dup2`, and imports neither from libSystem.
+  - **The cause, the XNU drain race:** in xnu-2422 (10.9), `dup2` or `close` on a busy descriptor
+    drains it. `fileproc_drain` calls `soo_drain`, which sets `SS_DRAINING` and wakes sleepers,
+    then sleeps with no timeout. `sbwait` (read, receive) and `accept` check `SS_DRAINING` only
+    after their own `msleep`. A thread that has taken the descriptor but not yet slept misses that
+    wakeup and sleeps. The drain then waits until some unrelated descriptor in the process drops
+    to no users (`fp_drop`). JDK 25 pre-closes with `dup2` and signals blocked threads only after it
+    returns. So `java/net/Socket/asyncClose/Race.java` hung the mavericks.3 release's guest run
+    past 480 s, and the 10.9 box's stall probe found `main` in `UnixDispatcher.preClose0`'s `dup2`
+    and one reader in `read()` in all 58 stalls of 100 runs.
+  - **Which macOS has it:** xnu-3789 (10.12) checks `SS_DRAINING` in `sbwait` before sleeping, and
+    xnu-2782 (10.10) does not. `accept` lacks the check even in xnu-7195 (macOS 11), where
+    `fileproc_drain` still has no timeout. On an arm64 Mac running current macOS, stock JDK 25
+    stalled AcceptCloseRace past 3 s in 2 of 8 runs.
+  - **Evidence on 10.9.5:**
+
+    | | mavericks.2 | JDK built from `fcd4c70` with Recaulk's close-race fix |
+    |---|---|---|
+    | CloseRace (`read`), 3000 | FAIL at iteration 1130 | clean, slowest close 4 ms |
+    | AcceptCloseRace, 3000 | FAIL at iteration 1292 | clean |
+    | UdpCloseRace, 3000 | FAIL at iteration 2075 | clean |
+    | race-probe (Race.java) | 58 stalls in 100 runs | 150 runs, 0 stalls |
+
+    The probes are in `mm-transfer/race-hang/probe`. A jdk-25 patch was tried first and dropped.
+    Shutting the socket down before `dup2` fixed `read` only: `soshutdown` returns `ENOTCONN` for
+    a listening or unconnected socket, and AcceptCloseRace and UdpCloseRace still failed.
+  - **Guarded by** LegacySmoke's required steps `closeRace`, `acceptCloseRace` and `udpCloseRace`.
+    Each makes 5000 closes against a thread entering `read()`, `accept()` or `receive()`, and fails,
+    naming the iteration, while a close is still blocked after 3 s or a blocked thread has not
+    finished 3 s after its close. A stuck close waits for unrelated descriptor activity, which the
+    loop has none of, so 3 s catches it as surely as 500 ms would, and leaves a slow guest room.
+    `tests/legacysmoke-closerace-test.sh` proves the failure paths with held calls. It leaves
+    `acceptCloseRace` to the 10.9 runs, because current macOS keeps the `accept` race.
+  - **Race.java** left the known-failures list: the guest gate runs it again.
+
+  Cost: none in jdk-25. The fix and its costs are Recaulk's. Exit: none while 10.9 is supported.

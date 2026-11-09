@@ -71,6 +71,9 @@ public class LegacySmoke {
         run("process", LegacySmoke::process);
         run("headless", LegacySmoke::headless);
         run("fonts", LegacySmoke::fonts);
+        run("closeRace", LegacySmoke::closeRace);
+        run("acceptCloseRace", LegacySmoke::acceptCloseRace);
+        run("udpCloseRace", LegacySmoke::udpCloseRace);
         if (network) {
             run("https", LegacySmoke::https);
         }
@@ -305,6 +308,165 @@ public class LegacySmoke {
         byte[] address = new byte[16];
         address[15] = 1;
         return address;
+    }
+
+    // Close races: a socket is closed while another thread is entering a blocking call on it, many
+    // times. On 10.9, XNU checks SS_DRAINING only after sleeping (sbwait, accept), so without
+    // Recaulk's close-race fix (ruling R66) the close can wait in dup2 indefinitely; on the 10.9 box
+    // the old JVM's first stuck close came at iteration 1130 (read), 1292 (accept) and 2075 (UDP
+    // receive). The loop runs on a daemon thread and this thread times each close while it is in
+    // progress, so a stuck close fails the step, naming its iteration, instead of hanging the smoke.
+    // A blocked thread not finished 3 s after its close returned fails it too, and so does the whole
+    // loop running past its deadline; each blocked call must end in its "closed" exception. A stuck
+    // close waits for unrelated descriptor activity, which this loop has none of, so 3 s catches it as
+    // surely as 500 ms would, and leaves a slow, emulated guest room.
+    // legacysmoke.<step>.stallAt=N holds iteration N's close for 20 s, and
+    // legacysmoke.<step>.blockerStallAt=N holds its blocked thread 20 s before the call: the tests
+    // of the two watchdogs.
+    static final int CLOSE_RACE_ITERATIONS = 5000;
+    static final long CLOSE_RACE_LIMIT_MS = 3000;
+    static final long CLOSE_RACE_BLOCKER_MS = 3000;
+    static final long CLOSE_RACE_DEADLINE_S = 180;
+
+    interface Racer {
+        void block() throws Exception;
+        void close() throws Exception;
+        boolean closedAsExpected(Throwable t);
+        void cleanup() throws Exception;
+    }
+
+    interface RacerFactory {
+        Racer open() throws Exception;
+    }
+
+    static boolean socketClosed(Throwable t) {
+        return t instanceof java.net.SocketException
+            && ("Socket closed".equalsIgnoreCase(t.getMessage()) || "Socket is closed".equalsIgnoreCase(t.getMessage()));
+    }
+
+    static void closeRace() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        try (ServerSocket server = new ServerSocket(0, 50, loopback)) {
+            raceCloses("closeRace", "read()", () -> {
+                Socket s = new Socket(loopback, server.getLocalPort());
+                s.setSoLinger(false, 0);
+                Socket peer = server.accept();
+                InputStream in = s.getInputStream();
+                return new Racer() {
+                    public void block() throws Exception { in.read(); }
+                    public void close() throws Exception { s.close(); }
+                    public boolean closedAsExpected(Throwable t) { return socketClosed(t); }
+                    public void cleanup() throws Exception { peer.close(); }
+                };
+            });
+        }
+    }
+
+    static void acceptCloseRace() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        raceCloses("acceptCloseRace", "accept()", () -> {
+            ServerSocket ss = new ServerSocket(0, 50, loopback);
+            return new Racer() {
+                public void block() throws Exception { ss.accept().close(); }
+                public void close() throws Exception { ss.close(); }
+                public boolean closedAsExpected(Throwable t) { return socketClosed(t); }
+                public void cleanup() { }
+            };
+        });
+    }
+
+    static void udpCloseRace() throws Exception {
+        InetAddress loopback = InetAddress.getLoopbackAddress();
+        raceCloses("udpCloseRace", "receive()", () -> {
+            DatagramChannel dc = DatagramChannel.open();
+            dc.bind(new InetSocketAddress(loopback, 0));
+            return new Racer() {
+                public void block() throws Exception { dc.receive(ByteBuffer.allocate(64)); }
+                public void close() throws Exception { dc.close(); }
+                public boolean closedAsExpected(Throwable t) { return t instanceof java.nio.channels.ClosedChannelException; }
+                public void cleanup() { }
+            };
+        });
+    }
+
+    static void raceCloses(String step, String call, RacerFactory factory) throws Exception {
+        int stallAt = Integer.getInteger("legacysmoke." + step + ".stallAt", -1);
+        int blockerStallAt = Integer.getInteger("legacysmoke." + step + ".blockerStallAt", -1);
+        long[] closeStart = new long[1];
+        int[] closeIteration = new int[1];
+        int[] unexpected = new int[1];
+        String[] lastUnexpected = new String[1];
+        Throwable[] failure = new Throwable[1];
+        Object lock = new Object();
+        Thread worker = new Thread(() -> {
+            try {
+                for (int i = 0; i < CLOSE_RACE_ITERATIONS; i++) {
+                    Racer racer = factory.open();
+                    try {
+                        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+                        String[] saw = {"nothing"};
+                        int at = i;
+                        Thread blocker = new Thread(() -> {
+                            try {
+                                go.countDown();
+                                if (at == blockerStallAt) {
+                                    Thread.sleep(20_000);
+                                }
+                                racer.block();
+                                saw[0] = "returned normally";
+                            } catch (Throwable t) {
+                                saw[0] = racer.closedAsExpected(t) ? "closed" : t.toString();
+                            }
+                        });
+                        blocker.setDaemon(true);
+                        blocker.start();
+                        go.await();
+                        synchronized (lock) { closeIteration[0] = i; closeStart[0] = System.nanoTime(); }
+                        if (i == stallAt) {
+                            Thread.sleep(20_000);
+                        }
+                        racer.close();
+                        synchronized (lock) { closeStart[0] = 0; }
+                        blocker.join(CLOSE_RACE_BLOCKER_MS);
+                        if (blocker.isAlive()) {
+                            throw new AssertionError("the thread in " + call + " had not finished " + CLOSE_RACE_BLOCKER_MS
+                                + " ms after close() returned, at iteration " + i + " of " + CLOSE_RACE_ITERATIONS);
+                        }
+                        if (!saw[0].equals("closed")) {
+                            unexpected[0]++;
+                            lastUnexpected[0] = saw[0];
+                        }
+                    } finally {
+                        racer.cleanup();
+                    }
+                }
+            } catch (Throwable t) {
+                failure[0] = t;
+            }
+        }, step);
+        worker.setDaemon(true);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CLOSE_RACE_DEADLINE_S);
+        worker.start();
+        while (worker.isAlive()) {
+            require(System.nanoTime() < deadline, "the " + CLOSE_RACE_ITERATIONS + " closes did not finish in "
+                + CLOSE_RACE_DEADLINE_S + " s; the last began at iteration " + closeIteration[0]);
+            long started;
+            int at;
+            synchronized (lock) { started = closeStart[0]; at = closeIteration[0]; }
+            if (started != 0) {
+                long ms = (System.nanoTime() - started) / 1_000_000;
+                require(ms <= CLOSE_RACE_LIMIT_MS, "close() blocked >" + CLOSE_RACE_LIMIT_MS + " ms at iteration " + at
+                    + " of " + CLOSE_RACE_ITERATIONS + " (a thread entering " + call + ": the XNU drain race, Recaulk's close-race fix)");
+            }
+            worker.join(20);
+        }
+        if (failure[0] instanceof AssertionError a) {
+            throw a;
+        }
+        if (failure[0] != null) {
+            throw new Exception("the close loop failed", failure[0]);
+        }
+        require(unexpected[0] == 0, unexpected[0] + " threads in " + call + " did not end in its closed exception, last: " + lastUnexpected[0]);
     }
 
     static void tcp() throws Exception {

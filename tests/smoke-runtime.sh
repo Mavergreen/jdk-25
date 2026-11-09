@@ -18,7 +18,7 @@
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 known_tools="java javac javadoc jar javap jdeps jlink jmod jshell"
-required="clocks fileCopy zip udp tcp urgentData tls process headless fonts"
+required="clocks fileCopy zip udp tcp urgentData tls process headless fonts closeRace acceptCloseRace udpCloseRace"
 
 network=no
 for a in "$@"; do

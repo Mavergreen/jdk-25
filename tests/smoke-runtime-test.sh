@@ -19,7 +19,10 @@ ok urgentData
 ok tls
 ok process
 ok headless
-ok fonts'
+ok fonts
+ok closeRace
+ok acceptCloseRace
+ok udpCloseRace'
 
 mkjdk() {  # mkjdk DIR
   rm -rf "$1"; mkdir -p "$1/bin"
