@@ -34,7 +34,8 @@ grep -q 'components/bootjdk/version' "$r" || fail "renovate.json has no bootjdk 
 grep -q 'temurin25-binaries' "$r" || fail "bootjdk manager does not track temurin25-binaries"
 grep -q 'github-release-attachments' "$r" || fail "bootjdk manager is not github-release-attachments"
 grep -q '<26' "$r" || fail "bootjdk is not capped <26"
-grep -q 'components/jtreg/version' "$r" || fail "renovate.json has no jtreg manager"
+# spec: PORT.md ruling R48 -- the pins bot moves jtreg with the jdk source; a jtreg-only Renovate PR cannot pass check-jtreg-pin
+if grep -qF -e '"/^components/jtreg/version$/"' -e '"openjdk/jtreg"' "$r"; then fail "renovate.json still proposes jtreg on its own"; fi
 if grep -q 'components/recaulk' "$r"; then fail "recaulk has a local manager; shipyard's preset tracks it"; fi
 i="$MAVERICKS_ROOT/INGREDIENTS.md"
 for l in 'bootjdk: components/bootjdk/version' 'clang22: components/clang22/version' 'recaulk: components/recaulk/version'; do

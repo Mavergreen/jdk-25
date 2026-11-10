@@ -9,7 +9,7 @@
   ],
   "customManagers": [
     {
-      "description": "The OpenJDK 25 source (own upstream), moved as GA alone: a jdk25u GA tag, jdk-25.X.Y[.Z[.W]]-ga, which also names CA respins such as jdk-25.0.5.0.3-ga, and never an EA build (ruling R46). .github/workflows/pins-bot.yml then fills REF and DIGEST (scripts/resolve-ga.sh: the build tag and commit GA names) and TARBALL_SHA256 on the PR's branch; until it has, build/derive-upstream-version.sh refuses to give a version and every build stops. UPSTREAM_VERSION is derived from REF, not managed here.",
+      "description": "The OpenJDK 25 source (own upstream), moved as GA alone: a jdk25u GA tag, jdk-25.X.Y[.Z[.W]]-ga, which also names CA respins such as jdk-25.0.5.0.3-ga, and never an EA build (ruling R46). .github/workflows/pins-bot.yml then fills REF and DIGEST (scripts/resolve-ga.sh: the build tag and commit GA names) and TARBALL_SHA256 on the PR's branch, and moves the jtreg pin and its deps to the JTREG_VERSION that source's make/conf/github-actions.conf names (ruling R48; there is no Renovate rule for jtreg alone, since only the jdk source says which jtreg is right); until it has, build/derive-upstream-version.sh refuses to give a version and every build stops. UPSTREAM_VERSION is derived from REF, not managed here.",
       "customType": "regex",
       "managerFilePatterns": [
         "/^components\\/jdk\\/version$/"
@@ -91,19 +91,6 @@
     },
     {
       "customType": "regex",
-      "description": "jtreg, the OpenJDK test harness tests/jtreg.sh runs the conformance subset with: a test tool only, nothing of it ships. jtreg publishes no binaries, so build/toolchain.sh's jdk_jtreg builds GitHub's tarball of TAG, verified by SHA256. Renovate moves TAG but cannot hash the tarball: the PR must write SHA256 (shasum -a 256 of https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz) before it merges; until then the fetch refuses the stale pin.",
-      "managerFilePatterns": [
-        "/^components/jtreg/version$/"
-      ],
-      "matchStrings": [
-        "TAG=(?<currentValue>jtreg-[^\\s]+)\\s+SHA256=[0-9a-f]{64}"
-      ],
-      "depNameTemplate": "openjdk/jtreg",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "regex:^jtreg-(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?\\+(?<build>\\d+)$"
-    },
-    {
-      "customType": "regex",
       "description": "The previous jdk-25 release, which tests/smoke-mavericks.sh installs before the candidate for its upgrade leg: a test input only, nothing of it ships. It reads 'none' until the first release exists; the regex matches only a version, so Renovate proposes nothing until a maintainer writes the first release's tag here, and then moves it to each newer release. A tag such as 25.0.5.0.3-mavericks.4 has six numbers and Renovate's regex versioning compares five, so the versioning leaves out the 25 every jdk-25 tag starts with and compares the -mavericks.N as revision.",
       "managerFilePatterns": [
         "/^components/previous-release/version$/"
@@ -155,7 +142,7 @@
       "allowedVersions": "/^jdk-25\\.\\d+\\.\\d+(\\.\\d+){0,2}-ga$/",
       "prBodyNotes": [
         "**The source pins:** `.github/workflows/pins-bot.yml` writes `REF`, `DIGEST` (`scripts/resolve-ga.sh`) and `TARBALL_SHA256` in `components/jdk/version` on this branch. Until it has, every build stops at `build/derive-upstream-version.sh`. If the bot failed, run `sh scripts/resolve-ga.sh && sh scripts/pin-source-tarballs.sh` on this branch and push the file (INGREDIENTS.md).",
-        "**The jtreg pin:** a jdk25u bump whose `make/conf/github-actions.conf` names another `JTREG_VERSION` fails `release.yml`'s `source` job (`scripts/check-jtreg-pin.sh`) until `components/jtreg/version` moves with it: `TAG=jtreg-<that version>` and the `SHA256` of `https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz`, on this branch."
+        "**The jtreg pin follows:** if this jdk25u's `make/conf/github-actions.conf` names another `JTREG_VERSION`, the pins bot also moves `components/jtreg/version` (`TAG` and the verified `SHA256` of its tarball, `scripts/pin-jtreg.sh`) and `components/jtreg/deps` (`scripts/pin-jtreg-deps.sh`) on this branch. Until they match, `release.yml`'s `source` job fails (`scripts/check-jtreg-pin.sh`); if the bot failed, run `sh scripts/pin-jtreg.sh && sh scripts/pin-jtreg-deps.sh` on this branch and push both files."
       ]
     },
     {
@@ -164,16 +151,6 @@
         "temurin25-binaries"
       ],
       "allowedVersions": "<26"
-    },
-    {
-      "description": "jtreg is pinned to the version the pinned jdk25u's own CI runs (JTREG_VERSION in its make/conf/github-actions.conf), since a newer jtreg changes what its tests see (StackWalkTest counts jtreg's own frames); and its tarball SHA-256 is written by hand on the PR. So a jtreg bump never automerges.",
-      "matchDepNames": [
-        "openjdk/jtreg"
-      ],
-      "automerge": false,
-      "prBodyNotes": [
-        "**Merge only to match jdk25u:** take this bump only when the pinned jdk25u's `make/conf/github-actions.conf` names this `JTREG_VERSION`; otherwise close it. **The tarball pin:** write `SHA256` in `components/jtreg/version` on this branch: `curl -sSfL https://github.com/openjdk/jtreg/archive/refs/tags/<TAG>.tar.gz | shasum -a 256`, then `sh scripts/pin-jtreg-deps.sh` to pin this jtreg's build dependencies in `components/jtreg/deps`, then run `sh tests/jtreg.sh` on Mac OS X 10.9 against the current image (INGREDIENTS.md)."
-      ]
     },
     {
       "description": "GNU autoconf and m4 tarball SHA-256s are written by hand on the PR, so their bumps never automerge.",

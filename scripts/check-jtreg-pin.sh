@@ -6,7 +6,9 @@
 #          DIGEST from GitHub (or from FILE). tests/jtreg.sh refuses the same mismatch, but only once the
 #          gate starts on 10.9; this lets a jdk bump that left jtreg behind fail in minutes, before a build.
 #          Renovate cannot move the jtreg pin for it: the version it must match is a value inside the
-#          pinned source, which no Renovate datasource reads. Exits 0 when they agree, 1 otherwise, 2 usage.
+#          pinned source, which no Renovate datasource reads, so the pins bot does (scripts/pin-jtreg.sh,
+#          ruling R48); this stays the guard for a bump the bot could not fill. Exits 0 when they
+#          agree, 1 otherwise, 2 usage.
 #          Needs curl (shipyard_curl) without --conf.
 # spec: tests/check-jtreg-pin-test.sh
 set -eu

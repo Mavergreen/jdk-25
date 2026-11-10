@@ -258,7 +258,11 @@ that every cited one is defined here). Each says what was decided, why, and what
   reaches main publishes, and jdk25u's newest build tags are early-access. The pins bot fills REF,
   DIGEST and TARBALL_SHA256 from the GA tag; until it does, the build refuses (fails closed).
 - **R48** The jtreg pin follows the jdk source's own CI (`make/conf/github-actions.conf`); a mismatch
-  fails the source job early.
+  fails the source job early. The pins bot moves it: on a jdk bump's branch, `scripts/pin-jtreg.sh`
+  reads the new source's `JTREG_VERSION` and, where it differs, writes `TAG` and the `SHA256` of a
+  tarball it has checked, by git, is the tag's tree; `scripts/pin-jtreg-deps.sh` then writes that
+  jtreg's build dependencies. Renovate has no jtreg rule: a jtreg it proposed on its own could not
+  pass the source job. A bump the bot could not fill still fails there (`scripts/check-jtreg-pin.sh`).
 - **R50** In the 10.9 guest, the jtreg gate runs `tests/jtreg.sh` with the pinned jtreg and the test
   natives against the installed JDK, one job per root, so each fits the job's time budget.
 - **R51** The trademark legend appears verbatim in the pkg's `legal/`, as in the README and every
