@@ -316,8 +316,10 @@ that every cited one is defined here). Each says what was decided, why, and what
   `--with-macosx-codesign=disabled`: the native image would then carry no signature or entitlements
   where the cross image does. The cross build passes no `CODESIGN`. A signature is Mach-O bytes, which
   `build/compare-builds.sh` already lets differ (R55). Cost: 10.9's codesign writes an older
-  CodeDirectory (v=20100) than the runner's (v=20400). Exit: OpenJDK drops the removal step, or the
-  family gains a codesign that 10.9 builds use.
+  CodeDirectory (v=20100) than the runner's (v=20400). Declared in INGREDIENTS.md as the
+  `native-codesign` deviation. Exit: OpenJDK drops the removal step, or the family gains a codesign
+  that 10.9 builds use (QUEUE "family: a codesign that 10.9 builds can use (retires jdk-25's R57
+  shim)").
   The shim also leaves unsigned, saying so on stderr, an unsigned Mach-O whose segment at file
   offset 0 has no sections. lld writes one when `-dead_strip` leaves a link no code (the jtreg native
   `libHasNoEntryPoint`, whose one function is hidden), and 10.9's `codesign_allocate` (cctools-862,
@@ -326,7 +328,7 @@ that every cited one is defined here). Each says what was decided, why, and what
   commands do not fit"); later cctools skip a segment at offset 0. No `-headerpad` helps. Such a file
   has no code to sign, and release 1's image holds none. Not a section added to every native link:
   that would change every native Mach-O, where this changes only the files 10.9 cannot sign. Exit:
-  the same, or lld keeps an empty `__text`.
+  the same QUEUE entry, or lld keeps an empty `__text`.
 - **R58** `build/build-jdk.sh` builds with `TZ=UTC`. `lib/classlist` lists the classes
   `HelloClasslist` loads, and it formats a date in the default time zone; a zone with transitions
   also loads `sun.util.calendar.ZoneInfoFile$Checksum`, so a build in New York listed one class more
