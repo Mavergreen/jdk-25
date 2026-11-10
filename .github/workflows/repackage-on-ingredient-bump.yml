@@ -16,3 +16,7 @@ jobs:
     uses: Mavergreen/shipyard/.github/workflows/repackage-on-ingredient-bump.yml@v1
     with:
       own-upstream-paths: components/jdk/version
+      # spec: shipyard's default (local_release=true) cuts N+1 ungated; release.yml gates a
+      #       reconcile=true dispatch on release-needed.sh, so a pin bump re-checks the declared
+      #       state instead of racing a release already cutting it (the ca-certs shape)
+      dispatch-field: reconcile=true
