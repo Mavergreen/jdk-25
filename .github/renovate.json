@@ -63,7 +63,7 @@
     },
     {
       "customType": "regex",
-      "description": "The boot JDK (Temurin 25 GA, macOS aarch64 tar.gz): a build input only, nothing of it ships. TAG and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh derives the download URL from TAG.",
+      "description": "The boot JDK (Temurin 25 GA, macOS aarch64 tar.gz): a build input whose files do not ship, but it compiles the shipped classes and writes their jars' Created-By, so it is declared state and a bump makes reconcile cut a repackage. TAG and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh derives the download URL from TAG.",
       "managerFilePatterns": [
         "/^components/bootjdk/version$/"
       ],
@@ -77,7 +77,7 @@
     },
     {
       "customType": "regex",
-      "description": "pandoc (macOS arm64 zip), which configure uses to make the man pages: a build input only, nothing of it ships. VERSION and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh's jdk_pandoc derives the download URL from VERSION.",
+      "description": "pandoc (macOS arm64 zip), which configure uses to make the man pages: a build input whose files do not ship, but the man pages it makes do, so it is declared state and a bump makes reconcile cut a repackage. VERSION and the asset's SHA-256 move together (github-release-attachments); build/toolchain.sh's jdk_pandoc derives the download URL from VERSION.",
       "managerFilePatterns": [
         "/^components/pandoc/version$/"
       ],
@@ -117,7 +117,7 @@
     },
     {
       "customType": "regex",
-      "description": "GNU autoconf, which the jdk source's configure runs to generate itself: a build input only, nothing of it ships. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it on the pinned GNU m4. Renovate reads releases from Savannah's git tags (vX.Y, never the vX.Yz betas) but cannot hash the tarball: the PR must write SHA256 before it merges; until then the fetch refuses the stale pin.",
+      "description": "GNU autoconf, which the jdk source's configure runs to generate itself: a build input whose files do not ship, but the configure it generates shapes the build, so it is declared state and a bump makes reconcile cut a repackage. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it on the pinned GNU m4. Renovate reads releases from Savannah's git tags (vX.Y, never the vX.Yz betas) but cannot hash the tarball: the PR must write SHA256 before it merges; until then the fetch refuses the stale pin.",
       "managerFilePatterns": [
         "/^components/autoconf/version$/"
       ],
@@ -132,7 +132,7 @@
     },
     {
       "customType": "regex",
-      "description": "GNU m4, which the pinned autoconf runs (it needs 1.4.8 or later; /usr/bin/m4 is 1.4.6 on Mac OS X 10.9 and on modern macOS): a build input only, nothing of it ships. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it. Renovate reads releases from Savannah's git tags (vX.Y.Z, never the betas) but cannot hash the tarball: the PR must write SHA256 before it merges.",
+      "description": "GNU m4, which the pinned autoconf runs (it needs 1.4.8 or later; /usr/bin/m4 is 1.4.6 on Mac OS X 10.9 and on modern macOS): a build input whose files do not ship, but it shapes the generated configure, so it is declared state and a bump makes reconcile cut a repackage. build/toolchain.sh's jdk_autoconf fetches the release tarball of VERSION from ftp.gnu.org, verified by SHA256, and builds it. Renovate reads releases from Savannah's git tags (vX.Y.Z, never the betas) but cannot hash the tarball: the PR must write SHA256 before it merges.",
       "managerFilePatterns": [
         "/^components/m4/version$/"
       ],
@@ -159,7 +159,7 @@
       ]
     },
     {
-      "description": "The boot JDK stays on Temurin 25 GA tags (jdk-25.X.Y[.Z]+N); the 26 train and early-access builds are never proposed. A build input, so a bump releases nothing by itself.",
+      "description": "The boot JDK stays on Temurin 25 GA tags (jdk-25.X.Y[.Z]+N); the 26 train and early-access builds are never proposed. A bump changes the shipped class bytes and Created-By, so reconcile cuts a repackage.",
       "matchDepNames": [
         "temurin25-binaries"
       ],
