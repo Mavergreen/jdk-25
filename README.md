@@ -1,6 +1,7 @@
-# Java 25 for Mavericks
+# JDK 25 for Mavericks
 
-Java (based on OpenJDK) for Mac OS X 10.9 Mavericks.
+JDK 25 for Mac OS X 10.9 Mavericks, based on the OpenJDK source code. This is an unofficial community
+build, not affiliated with or endorsed by Oracle or the OpenJDK Community.
 
 ## GUI included
 
@@ -26,3 +27,7 @@ How the GUI is tested:
 - **Printing to a file:** use the PDF button in the Mac print dialog. Java's own cross-platform print
   dialog (`JTable`'s Print uses it) may send a Print to File job to your printer instead: we read
   that in the source but have not tried it.
+
+---
+
+Java and OpenJDK are trademarks or registered trademarks of Oracle and/or its affiliates.
