@@ -57,10 +57,6 @@ else unset MAVERGREEN_BUILD_TOOL_LDFLAGS; fi
 vflags="-mmacosx-version-min=10.9"
 repo_url=https://github.com/Mavergreen/jdk-25
 
-# platform: configure takes the first clang on PATH as BUILD_CC for the aarch64 build JDK, and on a
-#           Mavergreen Mac that is /usr/local/mavergreen/bin/clang, which targets x86_64 10.9; the
-#           build JDK's tools (adlc) then cannot run on the arm64 host. configure reads BUILD_CC and
-#           BUILD_CXX only as VAR=value arguments, not from the environment.
 . "$MAVERICKS_ROOT/components/jdk/version"
 
 # platform: configure makes man pages only with pandoc, which it reads as a VAR=value argument; jdk_pandoc
@@ -86,6 +82,10 @@ codesign="$(jdk_codesign_shim "$wrap")" || die "jdk_codesign_shim failed"
 TZ=UTC; export TZ
 out="$root/build"
 rm -rf "$out"; mkdir -p "$out"
+# platform: configure takes the first clang on PATH as BUILD_CC for the aarch64 build JDK, and on a
+#           Mavergreen Mac that is /usr/local/mavergreen/bin/clang, which targets x86_64 10.9; the
+#           build JDK's tools (adlc) then cannot run on the arm64 host. configure reads BUILD_CC and
+#           BUILD_CXX only as VAR=value arguments, not from the environment.
 (cd "$out" && bash "$src/configure" \
   ${target:+"$target"} \
   --with-boot-jdk="$boot" \
