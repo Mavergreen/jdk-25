@@ -64,6 +64,7 @@ echo /System/Library/CoreServices/loginwindow.app/Contents/MacOS/loginwindow
 [ "$n" -ge 1 ] || exit 0
 echo /System/Library/PrivateFrameworks/PackageKit.framework/Resources/installd
 [ -n "${FAKE_PS_LATER:-}" ] && echo "$FAKE_PS_LATER"
+[ -z "${FAKE_PS_FAILS:-}" ] || { echo "ps: sysctl: Operation not permitted" >&2; exit 1; }
 exit 0
 EOF
 for k in javac jar jarrun; do
@@ -97,7 +98,7 @@ run() {
   env SMOKE_USR_BIN="${U:-$T/ok}" SMOKE_JAVA_HOME_TOOL="$T/bin/java_home" SMOKE_CONSOLE="${C:-$T/console}" \
     SMOKE_OPEN="$T/bin/open" SMOKE_PS="$T/bin/ps" SMOKE_JAR_LAUNCHER="Jar Launcher" SMOKE_JAR_WAIT=10 \
     FAKE_JH_NAME="${NAME:-Mavericks JDK 25}" FAKE_JH_HOME="${H:-$J}" FAKE_PS_N="$T/ps.$n" \
-    FAKE_OPEN_IGNORES="${IGN:-}" FAKE_OPEN_VERSION="${OV:-}" FAKE_PS_LATER="${LATER:-}" \
+    FAKE_OPEN_IGNORES="${IGN:-}" FAKE_OPEN_VERSION="${OV:-}" FAKE_PS_LATER="${LATER:-}" FAKE_PS_FAILS="${PSFAIL:-}" \
     sh "$here/smoke-usr-bin.sh" "${H:-$J}" "${V:-$jver}" "$jrev" > "$T/out.$n" 2>&1 || rc=$?
   out="$(cat "$T/out.$n")"
 }
@@ -115,6 +116,7 @@ LATER='/System/Library/CoreServices/Java Updater.app/Contents/MacOS/Java Updater
 expect "a Java Updater appears" 1 "an installer appeared"; LATER=
 LATER='/System/Library/CoreServices/Install Java.app/Contents/MacOS/Install Java' run
 expect "an Install app appears" 1 "an installer appeared"; LATER=
+PSFAIL=1 run; expect "ps fails: an empty listing is no proof that no installer appeared" 1 "ps -axo comm= failed"; PSFAIL=
 NAME="Java SE 25" run; expect "java_home -V lacks Mavericks JDK 25" 1 'does not list "Mavericks JDK 25"'; NAME=
 U="$T/prompt" run; expect "the stub asks to install Java" 1 "asked to install Java"; U=
 V=25.0.4 run; expect "another version answers" 1 "does not report 25.0.4"; V=

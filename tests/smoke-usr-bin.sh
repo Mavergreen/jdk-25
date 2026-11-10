@@ -45,7 +45,11 @@ case "$work" in *[\\\"]*) fail "the work directory $work has a quote or backslas
 # platform: ps -o comm= is the executable's path without arguments, so an argument naming an app
 #           (a renderer's --disable-features=InstalledApp) never counts; 10.9's stubs ask for Java
 #           through Java Updater.app or an Install*.app, and PackageKit's installd is neither
-prompts() { "$pscmd" -axo comm= | grep -E '/Java Updater\.app/|/Install[^/]*\.app/' | sort -u || true; }
+#           A failing ps lists nothing, which would pass as "no installer appeared", so it fails.
+prompts() {
+  "$pscmd" -axo comm= > "$work/ps" 2> "$work/ps.err" || fail "$pscmd -axo comm= failed: $(cat "$work/ps.err")"
+  grep -E '/Java Updater\.app/|/Install[^/]*\.app/' "$work/ps" | sort -u || true
+}
 prompts > "$work/before"
 noprompt() {
   if grep -E 'No Java runtime present|requesting install' "$work/err" > /dev/null; then
