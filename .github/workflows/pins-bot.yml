@@ -3,7 +3,8 @@ name: pins-bot
 # spec: tests/pins-bot-test.sh and INGREDIENTS.md -- this repo's own design: the push uses a pins-bot App token and no dispatch (reasons in that test's FAIL messages)
 #       A JDK bump's Renovate PR moves GA alone, a jdk25u -ga tag (ruling R46: never an EA build tag);
 #       REF and DIGEST (the build tag and commit GA names) and TARBALL_SHA256 are the pins Renovate cannot
-#       compute (INGREDIENTS.md), so this fills them on Renovate's own branch, in two jobs:
+#       compute (INGREDIENTS.md), and the jtreg pin and its build dependencies follow the jtreg that
+#       source's own CI runs (ruling R48), so this fills them on Renovate's own branch, in two jobs:
 #       pins (contents: read) reads upstream's bytes, never beside a token that can write; push touches
 #       none, and writes with the pins-bot App's token (contents: write alone), so the push starts
 #       release.yml like any push. Narrowing release.yml's own permissions is release.yml's work.
@@ -35,7 +36,7 @@ jobs:
       - name: Install mavericks-shipyard
         uses: Mavergreen/shipyard/.github/actions/install@v1
 
-      - name: The source pins GA names, if GA moved and they are stale
+      - name: The source pins GA names and the jtreg it runs, if GA moved and they are stale
         id: pin
         run: |
           set -eu
@@ -67,10 +68,11 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           set -eu
-          # shellcheck disable=SC2086  # up to three KEY=VALUE words; pins-bot.sh refuses any other shape
+          # shellcheck disable=SC2086  # up to six KEY=VALUE words; pins-bot.sh refuses any other shape
           applied="$(sh scripts/pins-bot.sh apply $PINS)"
-          [ "$applied" = changed ] || { echo "components/jdk/version already holds it"; exit 0; }
+          [ "$applied" = changed ] || { echo "the pin files already hold it"; exit 0; }
           git -c user.name='mavergreen-pins-bot[bot]' -c user.email='342268518+mavergreen-pins-bot[bot]@users.noreply.github.com' \
-            commit -q -m 'chore(pins): the build tag, commit and tarball SHA-256 of the moved GA tag' \
-            -m 'Written by .github/workflows/pins-bot.yml: its pins job found REF and DIGEST from GA with git ls-remote, and checked, with git, that the tarball is its commit'"'"'s tree.' components/jdk/version
+            commit -q -m 'chore(pins): the build tag, commit and tarball SHA-256 of the moved GA tag, and the jtreg it runs' \
+            -m 'Written by .github/workflows/pins-bot.yml: its pins job found REF and DIGEST from GA with git ls-remote, checked, with git, that the tarball is its commit'"'"'s tree, and moved the jtreg pin and its build dependencies to the JTREG_VERSION that commit'"'"'s make/conf/github-actions.conf names, if it differed.' \
+            components/jdk/version components/jtreg/version components/jtreg/deps
           git push origin "HEAD:refs/heads/$BRANCH"
