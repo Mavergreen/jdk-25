@@ -266,6 +266,11 @@ jobs:
           mkdir jtreg && tar -xzf "$RUNNER_TEMP/in/jtreg/jtreg.tar.gz" -C jtreg
           sh build/fetch-jdk.sh jtreg-src
           ls dist test-natives jtreg
+      # spec: PORT.md ruling R52 -- the upgrade leg installs the pinned previous release first; the runner
+      #       fetches it, verified, beside the candidate, so the guest needs no gh or token, and
+      #       smoke-mavericks fails where it is missing; only a `none` pin skips the leg
+      - name: Fetch the pinned previous release's pkg for smoke-mavericks' upgrade leg
+        run: sh scripts/fetch-previous-release.sh dist/previous
       - name: Install the pkg on Mac OS X 10.9, smoke it, and run the ${{ matrix.root }} jtreg subset against the installed JDK
         uses: Mavergreen/mavericks-vm@v1
         env:

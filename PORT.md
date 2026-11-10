@@ -264,7 +264,10 @@ that every cited one is defined here). Each says what was decided, why, and what
 - **R51** The trademark legend appears verbatim in the pkg's `legal/`, as in the README and every
   release's notes.
 - **R52** The upgrade leg of on-target acceptance installs the pinned previous release first; with
-  none pinned yet, it says so and installs only this one.
+  none pinned yet, it says so and installs only this one. CI's runner fetches that release's pkg,
+  verified against its SHA256SUMS (`scripts/fetch-previous-release.sh`), into `dist/previous/`, so
+  the 10.9 guest needs no gh or token. A missing or mismatched pkg, or an unreadable, empty or
+  malformed pin, fails; only `none` skips.
 - **R53** configure's autoconf is a pinned build input: GNU autoconf (`components/autoconf/version`)
   built on a pinned GNU m4 (`components/m4/version`), since autoconf needs m4 1.4.8 or later and
   `/usr/bin/m4` is 1.4.6 on 10.9 and modern macOS alike. Both are fetched with shipyard's

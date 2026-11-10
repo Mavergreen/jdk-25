@@ -1,13 +1,16 @@
 #!/bin/sh
 # platform: macOS-only -- runs only on Mac OS X 10.9: installs the pkg with sudo installer and runs it
-#   usage: JDK_VERSION=<FULL> sh tests/smoke-mavericks.sh PKG
+#   usage: JDK_VERSION=<FULL> [PREVIOUS_PKG=<path>] sh tests/smoke-mavericks.sh PKG
 #          The on-target acceptance for build/package-pkg.sh's jdk-<FULL>.pkg, run on the 10.9 box (it
 #          changes the system: it installs over /usr/local/mavergreen/jdk25 and
 #          /Library/Java/JavaVirtualMachines/mavergreen-jdk25.jdk). In order:
 #            upgrade leg: with a tag in components/previous-release/version, installs that release's
-#              pkg (gh release download), checks its manifest version, then installs PKG over it and
-#              checks the manifest version and /usr/libexec/java_home -v 25; with none, prints
-#              "skip upgrade: no previous release pinned" and installs PKG;
+#              pkg from PREVIOUS_PKG (default: previous/jdk-<tag>.pkg beside PKG, where CI's runner put
+#              it with scripts/fetch-previous-release.sh, so this guest needs no gh or token), checks its
+#              manifest version is the tag, then installs PKG over it and checks the manifest version and
+#              /usr/libexec/java_home -v 25; a missing pkg, one named for another tag or one whose
+#              manifest says another version fails; only `none` prints "skip upgrade: no previous release
+#              pinned" and installs PKG alone, and an unreadable, empty or malformed pin fails;
 #            the manifest version is JDK_VERSION, and the postinstall wrote lib/server/classes.jsa;
 #            the installed keytool -list -cacerts holds the ca-certs-roots that the build-info-jdk25.txt
 #              beside PKG records, ISRG Root X1 among them;
@@ -34,7 +37,6 @@ MAVERICKS_ROOT="$(cd "$here/.." && pwd)"
 prefix=/usr/local/mavergreen/jdk25
 home=/Library/Java/JavaVirtualMachines/mavergreen-jdk25.jdk/Contents/Home
 farm=/usr/local/mavergreen/bin
-repo=Mavergreen/jdk-25
 fail() { echo "FAIL $*" >&2; exit 1; }
 
 if [ "$#" -eq 0 ] && [ -z "${JDK_VERSION:-}" ]; then
@@ -57,22 +59,19 @@ install_pkg() {
 }
 installed_version() { /usr/libexec/PlistBuddy -c 'Print :version' "$prefix/mavergreen.plist" 2>/dev/null || true; }
 
-# spec: PORT.md ruling R52 -- the leg runs once the pin
-#       names a released tag, and says it skipped until then.
-prev="$(tr -d '[:space:]' < "$MAVERICKS_ROOT/components/previous-release/version" 2>/dev/null || true)"
+# spec: PORT.md ruling R52 -- the leg runs once the pin names a released tag, and says it skipped
+#       only while the pin reads none
+. "$here/lib/previous-release.sh"
+prev="$(previous_release_tag "$MAVERICKS_ROOT")" || fail "the upgrade leg cannot read its pin"
 case "$prev" in
-  ''|none)
+  none)
     echo "skip upgrade: no previous release pinned"
     install_pkg "$pkg" ;;
   *)
-    command -v gh > /dev/null 2>&1 || fail "the upgrade leg needs gh to fetch $repo $prev"
-    mkdir "$work/prev"
-    gh release download "$prev" -R "$repo" --pattern 'jdk-*.pkg' -D "$work/prev" \
-      || fail "could not download $repo release $prev"
-    set -- "$work/prev"/jdk-*.pkg
-    [ -f "$1" ] || fail "release $prev has no jdk-*.pkg asset"
-    [ "$#" -eq 1 ] || fail "release $prev has $# jdk-*.pkg assets, not one"
-    install_pkg "$1"
+    ppkg="${PREVIOUS_PKG:-$(dirname "$pkg")/previous/jdk-$prev.pkg}"
+    [ -f "$ppkg" ] || fail "the upgrade leg has no previous pkg at $ppkg (CI fetches it with scripts/fetch-previous-release.sh)"
+    [ "$(basename "$ppkg")" = "jdk-$prev.pkg" ] || fail "the previous pkg $ppkg is not jdk-$prev.pkg, the pinned $prev"
+    install_pkg "$ppkg"
     [ "$(installed_version)" = "$prev" ] || fail "after installing $prev the manifest says $(installed_version)"
     install_pkg "$pkg"
     [ "$(installed_version)" = "$JDK_VERSION" ] || fail "the upgrade from $prev left version $(installed_version), not $JDK_VERSION"
