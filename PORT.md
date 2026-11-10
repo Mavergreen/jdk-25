@@ -33,7 +33,6 @@ what, why on 10.9, provenance and exit.
 | `patches/0019-build-tool-ldflags.patch` | native build tools (`TARGET_TYPE := BUILD`) add `MAVERGREEN_BUILD_TOOL_LDFLAGS` to their links when it is set, which `build/build-jdk.sh` does on 10.9 only (ruling R56) | upstream gives a native build's build tools their own extra LDFLAGS |
 | `patches/0020-build-no-exploded-image-optimize.patch` | a native build no longer optimizes the exploded image, which a cross build never did, so its jmods' `module-info.class` are the cross build's bytes (ruling R59) | upstream's jmod writes the same bytes whether or not `ModulePackages` is already present |
 | `patches/0021-java2d-metal-request-prints-opengl.patch` | `-Dsun.java2d.metal=true` prints one line on stderr saying it is ignored, then Java2D uses OpenGL as `0015` makes it; `tests/no-metal-test.sh` asserts no Mach-O links or needs Metal | never |
-
 | `patches/0022-appkit-nsstring-substring.patch` | keyboard input's Keyman check uses `rangeOfString:`, not `containsString:` (10.10+) (was `patches-gui/0002`) | Recaulk back-fills `-[NSString containsString:]` |
 | `patches/0023-appkit-window-tabbing-fullsize.patch` | full-size content view (10.10+) and automatic window tabbing (10.12+) only where `NSWindow` has them (was `patches-gui/0003`) | never |
 | `patches/0024-appkit-tray-icon-nsbutton.patch` | the tray icon view is a borderless, image-only `NSButton`, not an `NSStatusBarButton` (was `patches-gui/0005`) | never |
@@ -174,8 +173,12 @@ Totals: 16 Recaulk, 22 JDK-headless, 10 JDK-GUI.
   its own. Its `containsString:` substitutions stay with it, since they are in the same function.
 - **Two of Hiker159's GUI patches shipped in release 1; the other five followed (ruling R61).** With the four AppKit
   natives built against the 11.3 SDK (ruling R16), nothing in `patches-gui/` is needed to compile or
-  link. `patches/0016` (was `patches-gui/0004`) moved because the compat guard refuses
-  `libawt_lwawt` without it: `controlAccentColor` is on the guard's post-10.9 selector list.
+  link. `patches/0016` (was `patches-gui/0004`) moved because without it `libawt_lwawt` sends
+  `controlAccentColor` and `selectedContentBackgroundColor` (both 10.14) on 10.9. The compat guard
+  does not catch losing it: the patch only wraps those sends in `@available`, so the selector names
+  stay in the binary either way, and `jdk_compat_guard` allows `controlAccentColor`
+  (`selectedContentBackgroundColor` is not on the guard's list at all). Only running the GUI on 10.9
+  would show the patch missing.
   `patches/0015` (was `patches-gui/0001`) moved so that `-Djava.awt.headless=false` asks Java2D for
   OpenGL and fails clearly rather than reaching for Metal. The other five, parked until release 2,
   guard run-time-only AppKit and accessibility calls that a headless JDK never makes. The guard does
