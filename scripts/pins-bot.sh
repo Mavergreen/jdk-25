@@ -72,7 +72,7 @@ deps_ok() {  # deps_ok <file> <jtreg tag>
       if (seen[k]++) bad = "line " NR " repeats " k
       if ($2 !~ /^[0-9a-f]+$/ || length($2) != 64) bad = "line " NR "'"'"'s SHA-256 is not 64 hex digits"
       for (i = 3; i <= NF; i++)
-        if ($i !~ /^https:\/\/(archive\.apache\.org|repo\.huaweicloud\.com|git\.openjdk\.org|repo1\.maven\.org|raw\.githubusercontent\.com)\/[A-Za-z0-9._\/+-]+$/ || $i ~ /\.\./)
+        if ($i !~ /^https:\/\/(archive\.apache\.org|repo\.huaweicloud\.com|git\.openjdk\.org|repo1\.maven\.org|raw\.githubusercontent\.com\/cbeust\/testng)\/[A-Za-z0-9._\/+-]+$/ || $i ~ /\.\./)
           bad = "line " NR "'"'"'s URL " $i " is not one jtreg'"'"'s build uses"
     }
     END {
@@ -100,10 +100,7 @@ case "${1:-}" in
       out="$out${out:+ }$k=$v"
     done
     jtag="$(sed -n 's/^TAG=//p' "$JPINS")"
-    deps_ok "$JDEPS" "$jtag" 2> "${TMPDIR:-/tmp}/pins-bot-deps.$$" || {
-      echo "pins-bot: components/jtreg/deps is not $jtag's build dependencies: $(cat "${TMPDIR:-/tmp}/pins-bot-deps.$$")" >&2
-      rm -f "${TMPDIR:-/tmp}/pins-bot-deps.$$"; exit 1; }
-    rm -f "${TMPDIR:-/tmp}/pins-bot-deps.$$"
+    why="$(deps_ok "$JDEPS" "$jtag" 2>&1)" || { echo "pins-bot: components/jtreg/deps is not $jtag's build dependencies: $why" >&2; exit 1; }
     echo "$out JTREG_DEPS=$(base64 < "$JDEPS" | tr -d '\n')" ;;
   apply)
     shift; [ $# -ge 1 ] && [ $# -le 6 ] || { echo "usage: pins-bot.sh apply <KEY=VALUE>... (one to six of $KEYS)" >&2; exit 2; }
@@ -118,6 +115,12 @@ case "${1:-}" in
       f="$(where "$k")"
       grep -q "^${f#* }=" "${f% *}" || { echo "pins-bot: ${f% *} has no ${f#* } line" >&2; exit 1; }
     done
+    # spec: PORT.md ruling R48 -- TAG and SHA256 name one tarball, and check-jtreg-pin.sh reads TAG alone,
+    #       so a TAG written over another tag's SHA256 would pass it
+    jt=0; js=0
+    case "$seen" in *" JTREG_TAG "*) jt=1 ;; esac
+    case "$seen" in *" JTREG_SHA256 "*) js=1 ;; esac
+    [ "$jt" = "$js" ] || { echo "pins-bot: JTREG_TAG and JTREG_SHA256 move together: give both or neither" >&2; exit 1; }
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/pins-bot.XXXXXX")"
     trap 'rm -rf "$tmp"' EXIT
     cp "$PINS" "$tmp/jdk"; cp "$JPINS" "$tmp/jtreg"; cp "$JDEPS" "$tmp/deps"

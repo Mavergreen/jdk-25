@@ -79,7 +79,7 @@ for b in "TAG jtreg-latest" "TAG jtreg-8.3+1;x" "SHA256 abc"; do
   grep -q "components/jtreg/version's ${b% *} is '" "$T/err" || fail "values: $(cat "$T/err")"
   git -C "$R" checkout -q -- components/jtreg/version
 done
-for b in "s|https://repo1.maven.org|https://evil.example|" "1s|.*|TAG=jtreg-8.3+1|" "/guice/d" "2s| [0-9a-f]* | abc |" "\$a\\
+for b in "s|https://repo1.maven.org|https://evil.example|" "s|githubusercontent.com/cbeust/testng/|githubusercontent.com/someone/else/|" "1s|.*|TAG=jtreg-8.3+1|" "/guice/d" "2s| [0-9a-f]* | abc |" "\$a\\
 extra/x.zip $Z https://repo1.maven.org/x.zip"; do
   newdeps "$(sed -n 's/^TAG=//p' "$JV")" "$b" > "$JD"
   if bot values > /dev/null 2> "$T/err"; then fail "handed on deps edited by [$b]"; fi
@@ -122,10 +122,12 @@ newdeps 'jtreg-8.2.1+1' > "$T/d821"; D821="$(b64 "$T/d821")"
 newdeps 'jtreg-8.3+1' 's|https://repo1.maven.org|https://evil.example|' > "$T/devil"
 newdeps 'jtreg-8.3+1' 's|testng/testng-|../testng-|' > "$T/dpath"
 newdeps 'jtreg-8.3+1' '/guice/d' > "$T/dshort"
+newdeps 'jtreg-8.3+1' 's|https://raw.githubusercontent.com/cbeust/testng/|https://raw.githubusercontent.com/someone/else/|' > "$T/draw"
 printf 'TAG=jtreg-8.3+1\n$(touch %s/pwned)\n' "$T" > "$T/drun"
 for bad in "JTREG_TAG=jtreg-latest" "JTREG_TAG=jtreg-8.3+1\$(touch $T/pwned)" "JTREG_SHA256=${Z%0}" "JTREG_SHA256=$Z JTREG_SHA256=$Z" \
   "JTREG_DEPS=not*base64" "JTREG_TAG=jtreg-8.3+1 JTREG_SHA256=$Z JTREG_DEPS=$D821" "JTREG_DEPS=$D83" \
-  "JTREG_TAG=jtreg-8.3+1 JTREG_SHA256=$Z" \
+  "JTREG_TAG=jtreg-8.3+1 JTREG_SHA256=$Z" "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$D83" "JTREG_SHA256=$Z" \
+  "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$(b64 "$T/draw")" \
   "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$(b64 "$T/devil")" "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$(b64 "$T/dpath")" \
   "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$(b64 "$T/dshort")" "JTREG_TAG=jtreg-8.3+1 JTREG_DEPS=$(b64 "$T/drun")" \
   "REF=jdk-25.0.9+9 JTREG_TAG=jtreg-8.3+1 JTREG_SHA256=abc JTREG_DEPS=$D83"; do
