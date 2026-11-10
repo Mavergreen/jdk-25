@@ -51,6 +51,7 @@ curl_url="$raw/${repo#https://github.com/}/$digest/make/conf/github-actions.conf
 shipyard_curl "$curl_url" "$T/conf" || fail "could not fetch $curl_url"
 ver="$(sed -n 's/^JTREG_VERSION=//p' "$T/conf" | tr -d ' \t\r')"
 [ -n "$ver" ] || fail "make/conf/github-actions.conf at $digest names no JTREG_VERSION"
+[ "$(grep -c '^JTREG_VERSION=' "$T/conf")" = 1 ] || fail "make/conf/github-actions.conf at $digest has more than one JTREG_VERSION line"
 printf '%s\n' "$ver" | grep -xE '[0-9]+(\.[0-9]+)*\+[0-9]+' > /dev/null \
   || fail "make/conf/github-actions.conf at $digest names JTREG_VERSION '$ver', which is not N[.N...]+N"
 tag="jtreg-$ver"

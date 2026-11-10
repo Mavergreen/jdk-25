@@ -100,6 +100,13 @@ done
 [ ! -e "$T/pwned" ] || fail "a JTREG_VERSION ran"
 grep -v JTREG_VERSION "$conf/github-actions.conf" > "$T/c" && cp "$T/c" "$conf/github-actions.conf"
 run --check; want 1 "a conf with no JTREG_VERSION"
+printf 'JTREG_VERSION=8.3+1\nJTREG_VERSION=8.2.1+1\n' > "$conf/github-actions.conf"
+for mode in "" --check; do
+  # shellcheck disable=SC2086  # "" is no argument
+  run $mode; want 1 "a conf with two JTREG_VERSION lines ${mode:-write}"
+  grep -q "more than one JTREG_VERSION" "$T/out" || fail "two JTREG_VERSION lines: $(cat "$T/out")"
+  cmp -s "$T/before" "$J" || fail "two JTREG_VERSION lines: wrote the pin file"
+done
 setconf 9.9+9
 run; want 1 "a jtreg tag that does not exist"
 cmp -s "$T/before" "$J" || fail "a tag that does not exist: wrote the pin file"
